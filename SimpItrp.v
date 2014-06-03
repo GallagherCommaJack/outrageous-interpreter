@@ -7,6 +7,54 @@ Require Import SimpSyntax.
 Require Import Plus Minus.
 Require Import Compare_dec.
 
+(* Semantic types *)
+
+Inductive TypS G : (G->Type)->Type :=
+	uvS : TypS G (fun g=>Type) |
+	piS A B : TypS (sigT A) B->TypS G (fun g=>forall a:A g,B (existT _ g a)).
+Implicit Arguments TypS [G].
+Implicit Arguments piS [G B].
+
+Inductive Typ G : Type := typ (T:G->Type) (s:TypS T).
+Implicit Arguments typ [G T].
+
+Definition typTp G (T:Typ G) := match T with typ T _ => T end.
+Implicit Arguments typTp [G].
+Coercion typTp : Typ >-> Funclass.
+
+Definition typSc G (T:Typ G) : TypS T := match T with typ _ s => s end.
+Implicit Arguments typSc [G].
+
+Definition uv G := typ (uvS G).
+
+Definition pi G (A:G->Type) B := typ (piS A (typSc B)).
+Implicit Arguments pi [G].
+
+Fixpoint typMapS G G' (f:G'->G) (T:G->Type) (s:TypS T) := match s with
+	uvS => uv G' |
+	piS A _ s => pi _ (typMapS _ _ (fun (g:sigT (fun g=>A (f g)))=>existT _ (f (projT1 g)) (projT2 g)) _ s)
+end.
+Implicit Arguments typMapS [G G' T].
+
+Definition typMap G G' (f:G'->G) T := typMapS f (typSc T).
+Implicit Arguments typMap [G G'].
+
+Definition typMapEq G G' (f:G'->G) (T:Typ G) : (fun g=>T (f g)) = typMap f T.
+	destruct T.
+	unfold typMap.
+	simpl.
+	revert G' f.
+	induction s;intros;simpl.
+
+	reflexivity.
+
+	apply (tr (fun X=>_ = fun g=>forall a,X (existT _ g a))
+		(IHs _ (fun g:sigT (fun g=>A (f g))=>existT _ (f (projT1 g)) (projT2 g)))).
+	simpl.
+	reflexivity.
+Defined.
+Implicit Arguments typMapEq [G G'].
+
 (* Dependent semantic contexts *)
 
 Inductive DCtx D : Type := dctx n G (xg:ExtCtx D n G).
@@ -22,7 +70,7 @@ Coercion dctx_G : DCtx >-> Ctx.
 Definition dctx_xg D (G:DCtx D) : ExtCtx D (dctx_n G) (dctx_G G) := match G with dctx _ _ xg => xg end.
 Implicit Arguments dctx_xg [D].
 
-Definition dctx_d D (G:DCtx D) g := unExt (dctx_xg G) g.
+Definition dctx_d D (G:DCtx D) := unExt (dctx_xg G).
 Implicit Arguments dctx_d [D G].
 
 Definition empDCtx D := dctx (extOCtx D).
@@ -56,7 +104,7 @@ Inductive SimpFCtxItrp : list simpFam->Ctx->Type :=
 	sfcItrpNil : SimpFCtxItrp nil empCtx |
 	sfcItrpCons F D D' F' :
 		SimpFCtxItrp D D'->
-		SimpFamItrp D' (empDCtx D') F (fun g=>F' (dctx_d g))->
+		SimpFamItrp D' (empDCtx D') F F'->
 		SimpFCtxItrp (F :: D) (extCtx D' F').
 
 Inductive SimpPCtxItrp D : list (nat * list nat)->DCtx D->Type :=
@@ -66,18 +114,18 @@ Inductive SimpPCtxItrp D : list (nat * list nat)->DCtx D->Type :=
 		SimpParamItrp G' F la (fun g=>Type) la'->
 		SimpPCtxItrp D ((f,la) :: G) (extDCtx G' (fun g=>la' g (ctxProj f' (dctx_d g)))).
 
-Definition spItrpNilInv D (G:Ctx D) F T la' (C:forall T:forall d,G d->Type,(forall d g,F d->T d g)->Type)
+Definition spItrpNilInv D (G:DCtx D) F T la' (C:forall T:G->Type,(forall g,F (dctx_d g)->T g)->Type)
 	(X:SimpParamItrp G F nil T la')
-: C (fun d _=>F d) (fun _ _ f=>f)->C T la' :=
+: C (fun g=>F (dctx_d g)) (fun g f=>f)->C T la' :=
 match X in SimpParamItrp _ _ nl T la' return (nil = nl)->_->C T la' with
 	spItrpNil => fun _ p=>p |
 	spItrpCons _ _ _ _ _ _ _ => fun e=>match nil_cons e with end
 end (eq_refl _).
 
-Definition spItrpConsInv D (G:Ctx D) F a la T la' (C:forall T:forall d,G d->Type,(forall d g,F d->T d g)->Type)
+Definition spItrpConsInv D (G:DCtx D) F a la T la' (C:forall T:G->Type,(forall g,F (dctx_d g)->T g)->Type)
 (X:SimpParamItrp G F (a :: la) T la') :
-	(forall P (a':AtCtx G a P) B la',SimpParamItrp G F la (fun d g=>forall p,B d (existT _ g p)) la'->
-	C (fun d g=>B d (existT _ g (ctxProj a' d g))) (fun d g f=>la' d g f (ctxProj a' d g)))->
+	(forall P (a':AtCtx G a P) B la',SimpParamItrp G F la (fun g=>forall p,B (existT _ g p)) la'->
+	C (fun g=>B (existT _ g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)))->
 C T la'.
 	simpl.
 	refine (match X in SimpParamItrp _ _ ala T la' return (ala = a :: la)->_->C T la' with
@@ -86,23 +134,23 @@ C T la'.
 	end (eq_refl _)).
 	revert a' s.
 	apply (tr (fun ala=>forall a':AtCtx G (hd O ala) P,SimpParamItrp G F (tl ala) _ la'0->
-		C _ (fun d g f=>la'0 d g f (ctxProj a' d g))) (eq_sym e)).
+		C _ (fun g f=>la'0 g f (ctxProj a' g))) (eq_sym e)).
 	simpl.
 	intro.
 	apply rtn.
 Defined.
 
 Definition sfItrpNilInv D G T (X:SimpFamItrp D G nil T) := match X in SimpFamItrp _ _ nl T
-return (nil = nl)->(T = fun d g=>Type) with
+return (nil = nl)->(T = fun g=>Type) with
 	sfItrpNil => fun _=>eq_refl _ |
 	sfItrpCons _ _ _ _ _ _ _ _ _ => fun e=>match nil_cons e with end
 end (eq_refl _).
 
 Definition sfItrpConsInv D G f la T T' P (X:SimpFamItrp D G ((f,la) :: T) T') :
-	(forall F (f':AtTCtx D f F) la' T',
-		SimpParamItrp G F la (fun _ _=>Type) la'->
-		SimpFamItrp D (extCtx G (fun d g=>la' d g (tctxProj f' d))) T T'->
-	P (fun d g=>forall p,T' d (existT _ g p)))->
+	(forall F (f':AtCtx D f F) la' T',
+		SimpParamItrp G F la (fun g=>Type) la'->
+		SimpFamItrp D (extDCtx G (fun g=>la' g (ctxProj f' (dctx_d g)))) T T'->
+	P (fun g=>forall p,T' (existT _ g p)))->
 P T'.
 	simpl.
 	refine (match X in SimpFamItrp _ _ flaT T' return (flaT = (f,la) :: T)->_->P T' with
@@ -111,53 +159,53 @@ P T'.
 	end (eq_refl _)).
 	simpl in T'0.
 	revert f' T'0 s s0.
-	apply (tr (fun flaT=>forall (f':AtTCtx D (fst (hd (O,nil) flaT)) F) T'0,
-		SimpParamItrp G F (snd (hd (O,nil) flaT)) (fun d g=>Type) la'->
-		SimpFamItrp D (extCtx G (fun d g=>la' d g (tctxProj f' d))) (tl flaT) T'0->
-	P (fun d g=>forall p,T'0 d (existT _ g p))) (eq_sym e)).
+	apply (tr (fun flaT=>forall (f':AtCtx D (fst (hd (O,nil) flaT)) F) T'0,
+		SimpParamItrp G F (snd (hd (O,nil) flaT)) (fun g=>Type) la'->
+		SimpFamItrp D (extDCtx G (fun g=>la' g (ctxProj f' (dctx_d g)))) (tl flaT) T'0->
+	P (fun g=>forall p,T'0 (existT _ g p))) (eq_sym e)).
 	simpl.
 	intro.
 	apply rtn.
 Defined.
 
-Definition stcItrpConsInv F D D' P (X:SimpTCtxItrp (F :: D) D') :
-	(forall D' F',SimpTCtxItrp D D'->SimpFamItrp D' (empCtx D') F (fun d g=>F' d)->
+Definition sfcItrpConsInv F D D' P (X:SimpFCtxItrp (F :: D) D') :
+	(forall D' F',SimpFCtxItrp D D'->SimpFamItrp D' (empDCtx D') F F'->
 	P (sigT F'))->
 P D'.
-	refine (match X in SimpTCtxItrp FD D' return (FD = F :: D)->_->P D' with
-		stcItrpNil => fun e=>match nil_cons e with end |
-		stcItrpCons _ _ _ _ _ _ => fun e rtn=>_
+	refine (match X in SimpFCtxItrp FD D' return (FD = F :: D)->_->P D' with
+		sfcItrpNil => fun e=>match nil_cons e with end |
+		sfcItrpCons _ _ _ _ _ _ => fun e rtn=>_
 	end (eq_refl _)).
 	revert s s0.
 	apply (tr (fun FD=>
-		SimpTCtxItrp (tl FD) D'0->
-		SimpFamItrp D'0 (empCtx D'0) (hd nil FD) (fun d g=>F' d)->
+		SimpFCtxItrp (tl FD) D'0->
+		SimpFamItrp D'0 (empDCtx D'0) (hd nil FD) F'->
 	P (sigT F')) (eq_sym e)).
 	simpl.
 	apply rtn.
 Defined.
 
-Definition scItrpConsInv D f la G G' P (X:SimpCtxItrp D ((f,la) :: G) G') :
-	(forall G' F (f':AtTCtx D f F) la',SimpCtxItrp D G G'->SimpParamItrp G' F la (fun d g=>Type) la'->
-	P (extCtx G' (fun d g=>la' d g (tctxProj f' d))))->
+Definition spcItrpConsInv D f la G G' P (X:SimpPCtxItrp D ((f,la) :: G) G') :
+	(forall G' F (f':AtCtx D f F) la',SimpPCtxItrp D G G'->SimpParamItrp G' F la (fun g=>Type) la'->
+	P (extDCtx G' (fun g=>la' g (ctxProj f' (dctx_d g)))))->
 P G'.
 	simpl.
-	refine (match X in SimpCtxItrp _ flaG G' return (flaG = (f,la) :: G)->_->P G' with
-		scItrpNil => fun e=>match nil_cons e with end |
-		scItrpCons _ _ _ _ _ _ _ _ _ => fun e rtn=>_
+	refine (match X in SimpPCtxItrp _ flaG G' return (flaG = (f,la) :: G)->_->P G' with
+		spcItrpNil => fun e=>match nil_cons e with end |
+		spcItrpCons _ _ _ _ _ _ _ _ _ => fun e rtn=>_
 	end (eq_refl _)).
 	revert f' s s0.
-	apply (tr (fun flaG=>forall f':AtTCtx D (fst (hd (O,nil) flaG)) F,
-		SimpCtxItrp D (tl flaG) G'0->
-		SimpParamItrp G'0 F (snd (hd (O,nil) flaG)) (fun d g=>Type) la'->
-	P (extCtx G'0 (fun d g=>la' d g (tctxProj f' d)))) (eq_sym e)).
+	apply (tr (fun flaG=>forall f':AtCtx D (fst (hd (O,nil) flaG)) F,
+		SimpPCtxItrp D (tl flaG) G'0->
+		SimpParamItrp G'0 F (snd (hd (O,nil) flaG)) (fun g=>Type) la'->
+	P (extDCtx G'0 (fun g=>la' g (ctxProj f' (dctx_d g))))) (eq_sym e)).
 	simpl.
 	intro.
 	apply rtn.
 Defined.
 
-Lemma spItrpBumpD D (G:Ctx D) F la T la' B : SimpParamItrp G F la T la'->
-SimpParamItrp (ctxBumpD B G) (fun d=>F (projT1 d)) la (fun d=>T (projT1 d)) (fun d=>la' (projT1 d)).
+Lemma spItrpBumpD D (G:DCtx D) F la T la' B : SimpParamItrp G F la T la'->
+SimpParamItrp (dctxBumpD B G) (fun d=>F (projT1 d)) la (fun d=>T (projT1 d)) (fun d=>la' (projT1 d)).
 	intro.
 	induction X.
 

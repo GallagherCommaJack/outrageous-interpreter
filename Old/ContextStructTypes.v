@@ -1,10 +1,28 @@
 Require Import Utils.
 
+Module Type CTXTYP.
+
+Parameter Tp : Type->Type.
+
+Parameter tpTp : forall G,Tp G->G->Type.
+Implicit Arguments tpTp [G].
+Coercion tpTp : Tp >-> Funclass.
+
+Parameter tpMap : forall G G' (f:G'->G),Tp G->Tp G'.
+Implicit Arguments tpMap [G G'].
+
+Parameter tpMapEq : forall G G' (f:G'->G) (T:Tp G),(fun g=>T (f g)) = tpMap f T.
+Implicit Arguments tpMapEq [G G'].
+
+End CTXTYP.
+
+Module Context (Import Typ : CTXTYP).
+
 (* Semantic contexts *)
 
 Inductive CtxS : Type->Type :=
 	empCtxS : CtxS unit |
-	extCtxS G : CtxS G->forall T:G->Type,CtxS (sigT T).
+	extCtxS G : CtxS G->forall T:Tp G,CtxS (sigT T).
 Implicit Arguments extCtxS [G].
 
 Inductive Ctx : Type := ctx G (s:CtxS G).
@@ -28,14 +46,15 @@ Definition ctxInit G := match G with
 	ctx _ (extCtxS _ s _) => ctx s
 end.
 
-Definition ctxTop G : ctxInit G->Type.
+Definition ctxTop G : forall ne:IsExtCtx G,Tp (ctxInit G).
 	destruct G.
-	destruct s;simpl.
+	destruct s;simpl;intro.
 
-	exact (fun g=>unit).
+	destruct ne.
 
 	exact T.
 Defined.
+Implicit Arguments ctxTop [G].
 
 Fixpoint ctxLenS G (s:CtxS G) := match s with
 	empCtxS => O |
@@ -45,7 +64,7 @@ Implicit Arguments ctxLenS [G].
 
 Definition ctxLen G := ctxLenS (ctxSc G).
 
-Definition extCtxUnfold G : forall ne:IsExtCtx G,G = extCtx (ctxInit G) (ctxTop G).
+Definition extCtxUnfold G : forall ne:IsExtCtx G,G = extCtx (ctxInit G) (ctxTop ne).
 	destruct G.
 	destruct s;simpl;intro.
 
@@ -56,13 +75,15 @@ Defined.
 Implicit Arguments extCtxUnfold [G].
 
 Definition extCtxInj G1 G2 : forall T1 T2 (e:extCtx G1 T1 = extCtx G2 T2),
-existT (fun G:Ctx=>G->Type) G1 T1 = existT _ G2 T2.
+existT Tp G1 T1 = existT Tp G2 T2.
 	destruct G1 as (G1,s1).
 	destruct G2 as (G2,s2).
 	simpl.
 	intros.
-	apply (tr (fun Gx=>_ = existT (fun G:Ctx=>G->Type) _ (ctxTop Gx)) e).
+	generalize I.
+	apply (tr (fun Gx=>forall ne:IsExtCtx Gx,_ = existT _ _ (ctxTop ne)) e).
 	simpl.
+	intro.
 	reflexivity.
 Defined.
 Implicit Arguments extCtxInj [G1 G2 T1 T2].
@@ -70,20 +91,20 @@ Implicit Arguments extCtxInj [G1 G2 T1 T2].
 (* Strongly typed de Bruijn indexes *)
 
 (*
-Inductive AtCtx : forall G:Ctx,nat->(G->Type)->Type :=
-	topCtx G T : AtCtx (extCtx G T) O (fun g=>T (projT1 g)) |
-	popCtx G n T : AtCtx G n T->forall T',AtCtx (extCtx G T') (S n) (fun g=>T (projT1 g)).
+Inductive AtCtx : forall G:Ctx,nat->Tp G->Type :=
+	topCtx G T : AtCtx (extCtx G T) O (tpMap (@projT1 _ _) T) |
+	popCtx G n T : AtCtx G n T->forall T',AtCtx (extCtx G T') (S n) (tpMap (@projT1 _ _) T).
 *)
 
-Inductive PopCtx G (T':G->Type) P : (sigT T'->Type)->Type :=
-	mkPopCtx T : P T->PopCtx G T' P (fun g=>T (projT1 g)).
+Inductive PopCtx G (T':G->Type) P : Tp (sigT T')->Type :=
+	mkPopCtx T : P T->PopCtx G T' P (tpMap (@projT1 _ _) T).
 Implicit Arguments PopCtx [G].
 Implicit Arguments mkPopCtx [G].
 
-Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return forall T:G->Type,Type with
+Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return forall T:Tp G,Type with
 	empCtxS => fun T=>Empty_set |
 	extCtxS _ s T' => match n with
-		O => eq (fun g=>T' (projT1 g)) |
+		O => eq (tpMap (@projT1 _ _) T') |
 		S n => PopCtx T' (AtCtxS _ s n)
 	end
 end.
@@ -91,9 +112,10 @@ Implicit Arguments AtCtxS [G].
 
 Definition AtCtx G := AtCtxS (ctxSc G).
 
-Definition topCtx G T : AtCtx (extCtx G T) O (fun g=>T (projT1 g)) := eq_refl _.
+Definition topCtx G T : AtCtx (extCtx G T) O (tpMap (@projT1 _ _) T) := eq_refl _.
 
-Definition popCtx G n T (a:AtCtx G n T) T' : AtCtx (extCtx G T') (S n) (fun g=>T (projT1 g)) := mkPopCtx _ _ _ a.
+Definition popCtx G n T (a:AtCtx G n T) T' : AtCtx (extCtx G T') (S n) (tpMap (@projT1 _ _) T) :=
+	mkPopCtx _ _ _ a.
 Implicit Arguments popCtx [G n T].
 
 Definition atCtxIndS (P:forall G n T,AtCtx G n T->Type)
@@ -145,12 +167,15 @@ Implicit Arguments atCtxUniq [G n T1 T2].
 Definition ctxProj G n T (a:AtCtx G n T) : forall g,T g.
 	induction a using AtCtx_rect.
 
+	apply (tr (fun X=>forall g,X g) (tpMapEq (@projT1 _ T) T)).
 	exact (@projT2 _ _).
 
+	apply (tr (fun X=>forall g,X g) (tpMapEq (@projT1 _ T') T)).
 	exact (fun g=>IHa (projT1 g)).
 Defined.
 Implicit Arguments ctxProj [G n T].
 
+(*
 Remark ctxProj_top G T : ctxProj (topCtx G T) = @projT2 _ _.
 	reflexivity.
 Qed.
@@ -192,6 +217,7 @@ Definition ctxProj_Eta G n : forall T (a:AtCtx G n T),(fun g=>ctxProj a g) = ctx
 	destruct n;simpl AtCtxS;intro;destruct a;reflexivity.
 Defined.
 Implicit Arguments ctxProj_Eta [G n T].
+*)
 
 (* Iterated context extension *)
 
@@ -651,3 +677,5 @@ ctxProj (tr (AtCtx G _) (atMBumpTEq b' xg a') (xa_a (atMBump xg (popCtx b' P))))
 	reflexivity.
 Defined.
 Implicit Arguments ctxProj_MBump [GL a b P G P'].
+
+End Context.

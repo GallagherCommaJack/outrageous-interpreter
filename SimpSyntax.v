@@ -1,153 +1,31 @@
 Require Import List.
 Require Import Compare_dec.
 
+Require Import Utils.
+
 Require Import Le Lt.
 Require Import Plus Minus.
-
-(* Some handy stuff missing from the standard library *)
-
-(* Like rev_append, but moves at most s elements *)
-Fixpoint unzip T s (l l':list T) := match s with
-	O => l' |
-	S s => match l with
-		nil => l' |
-		a :: l => unzip T s l (a :: l')
-	end
-end.
-Implicit Arguments unzip [T].
-
-Lemma minus_n_Sm n : forall m,pred (n - m) = n - S m.
-	induction n;intro.
-
-	reflexivity.
-
-	destruct m.
-		apply minus_n_O.
-
-		apply IHn.
-Qed.
-
-Lemma length_tl T (l:list T) : length (tl l) = pred (length l).
-	destruct l;reflexivity.
-Qed.
-
-Lemma map_ext_In A B (f g:A->B) l : (forall a,In a l->(f a = g a))->(map f l = map g l).
-	induction l;intro.
-
-	reflexivity.
-
-	simpl in H |- *.
-	rewrite <- (H _ (or_introl _ (eq_refl _))).
-	rewrite <- IHl.
-		reflexivity.
-	intros.
-	exact (H _ (or_intror _ H0)).
-Qed.
-
-Lemma skipnSkipAll T (l:list T) : skipn (length l) l = nil.
-	induction l.
-
-	reflexivity.
-
-	exact IHl.
-Qed.
-
-Lemma skipn_consNth T n (d:T) : forall l,(n < length l)->(nth n l d :: skipn (S n) l = skipn n l).
-	induction n;intro;(destruct l;intro;[destruct lt_n_O with (1 := H) |]).
-
-	reflexivity.
-
-	apply IHn.
-	apply lt_S_n with (1 := H).
-Qed.
-
-Lemma seq_In n l : forall s,In n (seq s l)->(s <= n < s + l).
-	induction l;intros;simpl in H.
-
-	destruct H.
-
-	rewrite <- plus_n_Sm.
-	destruct H.
-		rewrite <- H.
-		apply conj with (1 := le_n _).
-		apply (le_plus_l (S s)).
-
-		destruct (IHl _ H).
-		apply conj with (1 := lt_le_weak _ _ H0).
-		exact H1.
-Qed.
-
-Lemma unzip_length T n : forall l l':list T,(n <= length l)->(length (unzip n l l') = n + length l').
-	induction n;intros ? ?.
-
-	intro.
-	reflexivity.
-
-	destruct l;intro.
-		destruct le_Sn_O with (1 := H).
-	simpl in H |- *.
-	rewrite plus_n_Sm.
-	apply IHn.
-	apply le_S_n with (1 := H).
-Qed.
-
-Lemma unzip_consNth T n (d:T) : forall l l',(n < length l)->(nth n l d :: unzip n l l' = unzip (S n) l l').
-	induction n;intros ? ?;(destruct l;intro;[destruct lt_n_O with (1 := H) |]).
-
-	reflexivity.
-
-	apply IHn.
-	apply lt_S_n with (1 := H).
-Qed.
-
-Lemma unzip_nthHi T n l l' (d:T) : forall m,(n <= m)->(n <= length l)->(nth m (unzip n l l') d = nth (m - n) l' d).
-	induction n;intro.
-
-	intros.
-	rewrite <- minus_n_O.
-	reflexivity.
-
-	destruct m;intro.
-		destruct le_Sn_O with (1 := H).
-	intro.
-	rewrite <- unzip_consNth with (d := d) (1 := H0).
-	simpl.
-	apply IHn with (1 := le_S_n _ _ H) (2 := lt_le_weak _ _ H0).
-Qed.
-
-Lemma unzip_nthLo T n m (d:T) : (m < n)->forall l l',(n <= length l)->(nth m (unzip n l l') d = nth (n - S m) l d).
-	intro.
-	induction H as [| n];intros ? ?;(destruct l;intro Hl;simpl in Hl;[destruct le_Sn_O with (1 := Hl) |]).
-
-	simpl unzip.
-	simpl minus.
-	rewrite <- minus_n_n.
-	change (nth O (t :: l) d) with (nth O (t :: l') d).
-	rewrite (minus_n_n m).
-	apply unzip_nthHi with (1 := le_n _) (2 := le_S_n _ _ Hl).
-
-	rewrite <- minus_Sn_m with (1 := H).
-	simpl.
-	apply IHle with (1 := le_S_n _ _ Hl).
-Qed.
 
 (* Syntax of Simple type system *)
 
 Definition simpFam := list (nat * list nat).
 
-Definition laBumpG n l := map (fun a=>match nat_compare a l with
-	Lt => a |
-	_ => n + a
-end).
+Definition varBump n l i := match nat_compare i l with
+	Lt => i |
+	_ => n + i
+end.
 
-Definition laSubstG la l b := map (fun a=>match nat_compare a l with
-	Lt => a |
+Definition varSubst l b i := match nat_compare i l with
+	Lt => i |
 	Eq => l + b |
-	Gt => pred a
-end) la.
+	Gt => pred i
+end.
 
-Definition pBumpG n l (p:nat * _) := let (f,la) := p in (f,laBumpG n l la).
-Definition pSubstG (p:nat * _) l b := let (f,la) := p in (f,laSubstG la l b).
+Definition laBump n l := map (varBump n l).
+Definition laSubst la l b := map (varSubst l b) la.
+
+Definition pBumpG n l (p:nat * _) := let (f,la) := p in (f,laBump n l la).
+Definition pSubstG (p:nat * _) l b := let (f,la) := p in (f,laSubst la l b).
 
 Definition pMSubstG (p:nat * _) v := let (f,la) := p in (f,map (fun a=>match nat_compare a (length v) with
 	Lt => nth a v O |
@@ -171,12 +49,48 @@ Fixpoint fApply (F:simpFam) la := match la with
 	a :: la => fSubstG (tl (fApply F la)) O a
 end.
 
-Lemma laBumpG_O l la : laBumpG O l la = la.
-	unfold laBumpG.
+Lemma varBumpLo n l i : (i < l)->(varBump n l i = i).
+	intro.
+	unfold varBump.
+	rewrite (proj1 (nat_compare_lt _ _) H).
+	reflexivity.
+Qed.
+
+Lemma varBumpHi n l i : ~(i < l)->(varBump n l i = n + i).
+	intro.
+	unfold varBump.
+	destruct (nat_compare_spec i l);try reflexivity.
+	exact (match H H0 with end).
+Qed.
+
+Lemma varSubstLt l b i : (i < l)->(varSubst l b i = i).
+	intro.
+	unfold varSubst.
+	rewrite (proj1 (nat_compare_lt _ _) H).
+	reflexivity.
+Qed.
+
+Lemma varSubstEq l b i : (i = l)->varSubst l b i = l + b.
+	intro.
+	unfold varSubst.
+	rewrite (proj2 (nat_compare_eq_iff _ _) H).
+	reflexivity.
+Qed.
+
+Lemma varSubstGt l b i : (i > l)->(varSubst l b i = pred i).
+	intro.
+	unfold varSubst.
+	rewrite (proj1 (nat_compare_gt _ _) H).
+	reflexivity.
+Qed.
+
+Lemma laBump_O l la : laBump O l la = la.
+	unfold laBump.
 	rewrite map_ext with (g := fun a=>a).
 		rewrite map_id.
 		reflexivity.
 	intro.
+	unfold varBump.
 	destruct (nat_compare a l);reflexivity.
 Qed.
 
@@ -187,7 +101,7 @@ Lemma fBumpG_O F : forall l,fBumpG O l F = F.
 
 	destruct a as (f,la).
 	simpl.
-	rewrite laBumpG_O.
+	rewrite laBump_O.
 	rewrite IHF.
 	reflexivity.
 Qed.
@@ -203,11 +117,10 @@ Lemma fSubstG_length F a : forall l,length (fSubstG F l a) = length F.
 Qed.
 
 Lemma fSubstG_nth n a : forall F l,(n < length F)->(nth n (fSubstG F l a) (O,nil) = pSubstG (nth n F (O,nil)) (n + l) a).
-	induction n;intros ? ?;(destruct F;intro;[destruct lt_n_O with (1 := H) |]).
+	induction n;intros ? ?;(destruct F;intro;[destruct lt_n_O with (1 := H) |]);simpl.
 
 	reflexivity.
 
-	simpl.
 	rewrite plus_n_Sm.
 	apply IHn.
 	apply lt_S_n with (1 := H).
@@ -235,10 +148,11 @@ Lemma pMSubstG_snoc p v b : pMSubstG p (v ++ b :: nil) = pMSubstG (pSubstG p (le
 	rewrite <- plus_n_O.
 	refine (match _ in _ = m return (_,_) = (_,m) with eq_refl => eq_refl _ end).
 	clear f.
-	unfold laSubstG.
+	unfold laSubst.
 	rewrite map_map.
 	apply map_ext.
 	intro.
+	unfold varSubst.
 	destruct (nat_compare_spec a (length v)).
 
 	rewrite H.
@@ -269,6 +183,7 @@ Qed.
 
 Lemma fBumpD_O F : fBumpD O F = F.
 	unfold fBumpD.
+	simpl.
 	rewrite map_ext with (g := fun p=>p).
 		rewrite map_id.
 		reflexivity.
@@ -293,31 +208,28 @@ Lemma fBumpD_nth n m F d : (n < length F)->(nth n (fBumpD m F) d = let (f,la) :=
 Qed.
 
 Lemma fApply_nil la : fApply nil la = nil.
-	induction la.
+	induction la;simpl.
 
 	reflexivity.
 
-	simpl.
 	rewrite IHla.
 	reflexivity.
 Qed.
 
 Lemma fApply_cons p F la a : fApply (p :: F) (la ++ a :: nil) = fApply (fSubstG F O a) la.
-	induction la.
+	induction la;simpl.
 
 	reflexivity.
 
-	simpl.
 	rewrite IHla.
 	reflexivity.
 Qed.
 
 Lemma fApply_length F la : length (fApply F la) = length F - length la.
-	induction la.
+	induction la;simpl.
 
 	apply minus_n_O.
 
-	simpl.
 	rewrite fSubstG_length.
 	rewrite length_tl.
 	rewrite IHla.
@@ -350,18 +262,84 @@ Qed.
 (* Simple typing rules (But I don't mean simply-typed as in simply-typed lambda calculus.) *)
 
 Inductive SimpParamOK G F : list nat->simpFam->Set :=
-	spOKNil : (fBumpG 1 O F = F)->SimpParamOK G F nil F |
-	spOKCons a la (B:simpFam) : (a < length G)->SimpParamOK G F la (pBumpG (S a) O (nth a G (O,nil)) :: B)->SimpParamOK G F (a :: la) (fSubstG B O a).
+	spOKNil : SimpParamOK G F nil F |
+	spOKCons a la (B:simpFam) : (a < length G)->
+		SimpParamOK G F la (pBumpG (S a) O (nth a G (O,nil)) :: B)->
+		SimpParamOK G F (a :: la) (fSubstG B O a).
 
 Inductive SimpFamOK (D:list simpFam) G : simpFam->Set :=
 	sfOKNil : SimpFamOK D G nil |
-	sfOKCons f la T : (f < length D)->SimpParamOK G (fBumpD (S f) (nth f D nil)) la nil->SimpFamOK D ((f,la) :: G) T->SimpFamOK D G ((f,la) :: T).
+	sfOKCons f la T : (f < length D)->
+		SimpParamOK G (fBumpD (S f) (nth f D nil)) la nil->
+		SimpFamOK D ((f,la) :: G) T->
+		SimpFamOK D G ((f,la) :: T).
 
 Inductive SimpFamsOK D : list simpFam->Set :=
 	sfsOKOne F : SimpFamOK D nil F->SimpFamsOK D (F :: nil) |
 	sfsOKCons F Fs : SimpFamOK D nil F->SimpFamsOK (F :: D) Fs->SimpFamsOK D (F :: Fs).
 
-Lemma sfsOKUnzip D F : SimpFamOK D nil F->(forall s,(s < length D)->SimpFamOK (skipn (S s) D) nil (nth s D nil))->SimpFamsOK nil (unzip (length D) D (F :: nil)).
+Inductive SimpFCtxOK : list simpFam->Set :=
+	sfcOKNil : SimpFCtxOK nil |
+	sfcOKCons D F : SimpFCtxOK D->SimpFamOK D nil F->SimpFCtxOK (F :: D).
+
+Inductive SimpPCtxOK (D:list simpFam) : list (nat * list nat)->Set :=
+	spcOKNil : SimpPCtxOK D nil |
+	spcOKCons G f la : (f < length D)->
+		SimpPCtxOK D G->
+		SimpParamOK G (fBumpD (S f) (nth f D nil)) la nil->
+		SimpPCtxOK D ((f,la) :: G).
+
+Lemma fctxProjOK f : forall D,SimpFCtxOK D->(f < length D)->SimpFamOK (skipn (S f) D) nil (nth f D nil).
+	induction f;intros ? ?;(destruct H;intro;[destruct lt_n_O with (1 := H) |]).
+
+	simpl.
+	exact s.
+
+	simpl in H0.
+	exact (IHf _ H (lt_S_n _ _ H0)).
+Qed.
+
+Lemma pctxProjOK D a P : forall G,SimpPCtxOK D G->(a < length G)->(forall f la,
+	((f,la) = nth a G (O,nil))->
+	SimpParamOK (skipn (S a) G) (fBumpD (S f) (nth f D nil)) la nil->
+P)->P.
+	induction a;intros ? ?;(destruct H;intro;[destruct lt_n_O with (1 := H) |]).
+
+	simpl.
+	intro rtn.
+	exact (rtn _ _ (eq_refl _) s).
+
+	simpl in H0.
+	exact (IHa _ H (lt_S_n _ _ H0)).
+Qed.
+
+Lemma spOKFree G F la T : SimpParamOK G F la T->(laBump 1 (length G) la = la).
+	intro.
+	induction H.
+
+	reflexivity.
+
+	simpl.
+	rewrite varBumpLo with (1 := l).
+	rewrite IHSimpParamOK.
+	reflexivity.
+Qed.
+
+Lemma sfOKFree D G T : SimpFamOK D G T->(fBumpG 1 (length G) T = T).
+	intro.
+	induction H.
+
+	reflexivity.
+
+	simpl in IHSimpFamOK |- *.
+	rewrite spOKFree with (1 := s).
+	rewrite IHSimpFamOK.
+	reflexivity.
+Qed.
+
+Lemma sfsOKUnzip D F : SimpFamOK D nil F->
+	(forall s,(s < length D)->SimpFamOK (skipn (S s) D) nil (nth s D nil))->
+SimpFamsOK nil (unzip (length D) D (F :: nil)).
 	intros.
 	assert (forall s,(s <= length D)->SimpFamsOK (skipn s D) (unzip s D (F :: nil)));
 	[|
@@ -372,6 +350,7 @@ Lemma sfsOKUnzip D F : SimpFamOK D nil F->(forall s,(s < length D)->SimpFamOK (s
 	intro.
 	induction s;intro.
 
+	simpl.
 	apply sfsOKOne with (1 := H).
 
 	rewrite <- unzip_consNth with (d := nil) (1 := H1).
