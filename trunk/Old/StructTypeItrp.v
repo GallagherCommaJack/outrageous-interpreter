@@ -1,4 +1,3 @@
-
 Inductive SimpParamItrp D (G:DCtx D) (F:Typ D) : list nat->forall T:Typ G,(forall g,F (dctx_d G g)->T g)->Type :=
 	spItrpNil : SimpParamItrp D G F nil (typMap (dctx_d G) F) (fun g f=>tr (fun X=>X g) (typMapEq _ F) f) |
 	spItrpCons a la P (a':AtCtx G a P) B la' :
