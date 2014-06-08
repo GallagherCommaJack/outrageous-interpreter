@@ -252,7 +252,7 @@ Lemma tcSubst_nth i b : forall G,(i < length G)->
 	apply lt_S_n with (1 := H).
 Qed.
 
-(* One-context, no-inversion typing rules. SimpParamGood is a "nested" inductive family. *)
+(* One-context typing rules. SimpParamGood is a "nested" inductive family. *)
 
 Inductive TreeFamGood PG G : treeFam->Type :=
 	tfGoodUv : TreeFamGood PG G Uv |
@@ -267,7 +267,6 @@ Inductive SimpParamGood G F : list nat->treeFam->Set :=
 	spGoodNil : SimpParamGood G F nil F |
 	spGoodCons a la B : (a < length G)->
 		SimpParamGood G F la (Pi (fBump (S a) O (nth a G Uv)) B)->
-		TreeFamGood SimpParamGood (fBump (S a) O (nth a G Uv) :: G) B->
 		SimpParamGood G F (a :: la) (fSubst B O a).
 Set Elimination Schemes.
 
@@ -294,14 +293,11 @@ Variable P : list treeFam->treeFam->list nat->treeFam->Type.
 Variable Pnil : forall G F,P G F nil F.
 Variable Pcons : forall G F a la B,(a < length G)->
 	P G F la (Pi (fBump (S a) O (nth a G Uv)) B)->
-	TreeFamGood P (fBump (S a) O (nth a G Uv) :: G) B->
 	P G F (a :: la) (fSubst B O a).
 
 Fixpoint SimpParamGood_rect G F la T (Hla:SimpParamGood G F la T) : P G F la T := match Hla with
 	spGoodNil => Pnil _ _ |
-	spGoodCons _ _ _ H Hla HB => Pcons _ _ _ _ _ H
-		(SimpParamGood_rect _ _ _ _ Hla)
-		(tfGoodMap SimpParamGood_rect HB)
+	spGoodCons _ _ _ H Hla => Pcons _ _ _ _ _ H (SimpParamGood_rect _ _ _ _ Hla)
 end.
 
 End SPGRect.
@@ -409,9 +405,6 @@ SimpParamGood (tcBump (length X) GR ++ X ++ GL) (fBump (length X) (length GR) F)
 	rewrite <- plus_n_O.
 	destruct (le_lt_dec (length GR) a).
 		subst G.
-		pose proof (tfGoodBumpNest _ _ (_ :: GR) _ H0).
-		clear H0.
-		simpl in H1.
 		rewrite varBumpHi with (1 := le_not_lt _ _ l).
 		assert (let a' := length X + a in
 		fBump (length X) (length GR) (fBump (S a) O (nth a (GR ++ GL) Uv)) =
@@ -437,18 +430,11 @@ SimpParamGood (tcBump (length X) GR ++ X ++ GL) (fBump (length X) (length GR) F)
 			apply plus_lt_compat_l.
 			rewrite <- app_length.
 			exact H.
-
-			rewrite <- H0.
-			exact IH.
-
-			rewrite <- H0.
-			exact H1.
+		rewrite <- H0.
+		exact IH.
 
 		clear H.
 		subst G.
-		pose proof (tfGoodBumpNest _ _ (_ :: GR) _ H0).
-		clear H0.
-		simpl in H.
 		rewrite varBumpLo with (1 := l).
 		assert (fBump (length X) (length GR) (fBump (S a) O (nth a (GR ++ GL) Uv)) =
 		fBump (S a) O (nth a (tcBump (length X) GR ++ X ++ GL) Uv)).
@@ -463,12 +449,8 @@ SimpParamGood (tcBump (length X) GR ++ X ++ GL) (fBump (length X) (length GR) F)
 			rewrite tcBump_length.
 			apply le_trans with (1 := l).
 			apply le_plus_l.
-
-			rewrite <- H0.
-			exact IH.
-
-			rewrite <- H0.
-			exact H.
+		rewrite <- H.
+		exact IH.
 Qed.
 
 Lemma tfGoodBump GL X GR F : TreeFamGoodPG (GR ++ GL) F->
@@ -614,9 +596,6 @@ SimpParamGood (tcSubst GR b ++ GL) (fSubst F (length GR) b) (laSubst la (length 
 	destruct (lt_eq_lt_dec a (length GR));[clear H0;destruct s |].
 		rewrite varSubstLt with (1 := l).
 		subst G.
-		pose proof (tfGoodSubstNest _ (_ :: GR) _ _ H H1).
-		clear H1.
-		simpl in H0.
 		assert (fSubst (fBump (S a) O (nth a (GR ++ X :: GL) Uv)) (length GR) b =
 		fBump (S a) O (nth a (tcSubst GR b ++ GL) Uv)).
 			rewrite app_nth1 with (1 := l).
@@ -630,18 +609,11 @@ SimpParamGood (tcSubst GR b ++ GL) (fSubst F (length GR) b) (laSubst la (length 
 			rewrite tcSubst_length.
 			apply le_trans with (1 := l).
 			apply le_plus_l.
-
-			rewrite <- H1.
-			exact IH.
-
-			rewrite <- H1.
-			exact H0.
+		rewrite <- H0.
+		exact IH.
 
 		rewrite varSubstEq with (1 := e).
 		subst G.
-		pose proof (tfGoodSubstNest _ (_ :: GR) _ _ H H1).
-		clear H1.
-		simpl in H0.
 		assert (let a' := length GR + b in
 		fSubst (fBump (S a) O (nth a (GR ++ X :: GL) Uv)) (length GR) b =
 		fBump (S a') O (nth a' (tcSubst GR b ++ GL) Uv)).
@@ -658,24 +630,17 @@ SimpParamGood (tcSubst GR b ++ GL) (fSubst F (length GR) b) (laSubst la (length 
 			simpl.
 			fold X.
 			reflexivity.
-		simpl in H1.
+		simpl in H0.
 		apply spGoodCons.
 			rewrite app_length.
 			rewrite tcSubst_length.
 			apply plus_lt_compat_l with (1 := H).
-
-			rewrite <- H1.
-			exact IH.
-
-			rewrite <- H1.
-			exact H0.
+		rewrite <- H0.
+		exact IH.
 
 		rewrite varSubstGt with (1 := l).
 		subst G.
-		pose proof (tfGoodSubstNest _ (_ :: GR) _ _ H H1).
-		clear H1.
-		simpl in H2.
-		revert H0 IH H2.
+		revert H0 IH.
 		destruct a.
 			destruct lt_n_O with (1 := l).
 		rewrite app_length.
@@ -698,12 +663,8 @@ SimpParamGood (tcSubst GR b ++ GL) (fSubst F (length GR) b) (laSubst la (length 
 			rewrite app_length.
 			rewrite tcSubst_length.
 			exact H2.
-
-			rewrite <- H3.
-			exact IH.
-
-			rewrite <- H3.
-			exact H0.
+		rewrite <- H0.
+		exact IH.
 Qed.
 
 Lemma tfGoodSubst GL GR F b : (b < length GL)->TreeFamGoodPG (GR ++ fBump (S b) O (nth b GL Uv) :: GL) F->
@@ -847,19 +808,14 @@ Qed.
 Lemma spOKGood D G F la T : let G' := spcTree G ++ sfcTree D in
 	TreeFamGoodPG G' (sfTree (length G) F)->
 	SimpParamOK G F la T->
-(SimpParamGood G' (sfTree (length G) F) la (sfTree (length G) T) *
-TreeFamGoodPG G' (sfTree (length G) T)).
+SimpParamGood G' (sfTree (length G) F) la (sfTree (length G) T).
 	simpl.
 	intros.
 	induction H0.
 
-	refine (_,H).
 	apply spGoodNil.
 
 	simpl in IHSimpParamOK.
-	destruct IHSimpParamOK as (Hs,Ht).
-	inversion_clear Ht.
-	clear H1.
 	rewrite sfTree_SubstG with (1 := le_O_n _).
 	assert (spTree (length G) (pBumpG (S a) O (nth a G (O,nil))) =
 	fBump (S a) O (nth a (spcTree G ++ sfcTree D) Uv)).
@@ -874,17 +830,9 @@ TreeFamGoodPG G' (sfTree (length G) T)).
 		rewrite spcTree_length.
 		apply le_trans with (1 := l).
 		apply le_plus_l.
-	split.
-		apply spGoodCons with (1 := H3).
-			rewrite <- H1.
-			exact Hs.
-
-			rewrite <- H1.
-			exact H2.
-
-		apply tfGoodSubst_O with (1 := H3).
-		rewrite <- H1.
-		exact H2.
+	apply spGoodCons with (1 := H2).
+	rewrite <- H1.
+	exact IHSimpParamOK.
 Qed.
 
 Lemma sfOKGood D G T : SimpFCtxOK D->SimpFamOK D G T->let G' := spcTree G ++ sfcTree D in TreeCtxGood G'->
@@ -922,9 +870,8 @@ TreeFamGoodPG G' (sfTree (length G) T).
 			apply tfGoodBump_unskip with (1 := H1).
 			apply ctxProjGood with (1 := H0).
 		simpl in H3.
-		destruct H3 as (?,_).
 		rewrite <- H2.
-		exact s0.
+		exact H3.
 	refine (let H := IHSimpFamOK _ in _).
 		apply tcGoodCons with (1 := H1) (2 := H0).
 	apply tfGoodPi with (1 := H1) (2 := H2).
