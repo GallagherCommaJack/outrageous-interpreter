@@ -1,10 +1,21 @@
 Require Import Utils.
 
+Module Type CTXTYP.
+
+Parameter Tp : Type.
+
+Parameter tpTp : Tp->Type.
+Coercion tpTp : Tp >-> Sortclass.
+
+End CTXTYP.
+
+Module Context (Import Typ : CTXTYP).
+
 (* Semantic contexts *)
 
 Inductive CtxS : Type->Type :=
 	empCtxS : CtxS unit |
-	extCtxS G : CtxS G->forall T:G->Type,CtxS (sigT T).
+	extCtxS G : CtxS G->forall T:G->Tp,CtxS (sigT T).
 Implicit Arguments extCtxS [G].
 
 Inductive Ctx : Type := ctx G (s:CtxS G).
@@ -28,14 +39,15 @@ Definition ctxInit G := match G with
 	ctx _ (extCtxS _ s _) => ctx s
 end.
 
-Definition ctxTop G : ctxInit G->Type.
+Definition ctxTop G : forall ne:IsExtCtx G,ctxInit G->Tp.
 	destruct G.
-	destruct s;simpl.
+	destruct s;simpl;intro.
 
-	exact (fun g=>unit).
+	destruct ne.
 
 	exact T.
 Defined.
+Implicit Arguments ctxTop [G].
 
 Fixpoint ctxLenS G (s:CtxS G) := match s with
 	empCtxS => O |
@@ -45,7 +57,7 @@ Implicit Arguments ctxLenS [G].
 
 Definition ctxLen G := ctxLenS (ctxSc G).
 
-Definition extCtxUnfold G : forall ne:IsExtCtx G,G = extCtx (ctxInit G) (ctxTop G).
+Definition extCtxUnfold G : forall ne:IsExtCtx G,G = extCtx (ctxInit G) (ctxTop ne).
 	destruct G.
 	destruct s;simpl;intro.
 
@@ -56,13 +68,15 @@ Defined.
 Implicit Arguments extCtxUnfold [G].
 
 Definition extCtxInj G1 G2 : forall T1 T2 (e:extCtx G1 T1 = extCtx G2 T2),
-existT (fun G:Ctx=>G->Type) G1 T1 = existT _ G2 T2.
+existT (fun G:Ctx=>G->Tp) G1 T1 = existT _ G2 T2.
 	destruct G1 as (G1,s1).
 	destruct G2 as (G2,s2).
 	simpl.
 	intros.
-	apply (tr (fun Gx=>_ = existT (fun G:Ctx=>G->Type) _ (ctxTop Gx)) e).
+	generalize I.
+	apply (tr (fun Gx=>forall ne:IsExtCtx Gx,_ = existT (fun G:Ctx=>G->Tp) _ (ctxTop ne)) e).
 	simpl.
+	intro.
 	reflexivity.
 Defined.
 Implicit Arguments extCtxInj [G1 G2 T1 T2].
@@ -70,17 +84,17 @@ Implicit Arguments extCtxInj [G1 G2 T1 T2].
 (* Strongly typed de Bruijn indexes *)
 
 (*
-Inductive AtCtx : forall G:Ctx,nat->(G->Type)->Type :=
+Inductive AtCtx : forall G:Ctx,nat->(G->Tp)->Type :=
 	topCtx G T : AtCtx (extCtx G T) O (fun g=>T (projT1 g)) |
 	popCtx G n T : AtCtx G n T->forall T',AtCtx (extCtx G T') (S n) (fun g=>T (projT1 g)).
 *)
 
-Inductive PopCtx G (T':G->Type) P : (sigT T'->Type)->Type :=
+Inductive PopCtx G (T':G->Tp) P : (sigT T'->Tp)->Type :=
 	mkPopCtx T : P T->PopCtx G T' P (fun g=>T (projT1 g)).
 Implicit Arguments PopCtx [G].
 Implicit Arguments mkPopCtx [G].
 
-Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return forall T:G->Type,Type with
+Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return (G->Tp)->Type with
 	empCtxS => fun T=>Empty_set |
 	extCtxS _ s T' => match n with
 		O => eq (fun g=>T' (projT1 g)) |
@@ -197,7 +211,7 @@ Implicit Arguments ctxProj_Eta [G n T].
 
 Inductive ExtCtx GL : nat->Ctx->Type :=
 	extOCtx : ExtCtx GL O GL |
-	extSCtx n G : ExtCtx GL n G->forall T:G->Type,ExtCtx GL (S n) (extCtx G T).
+	extSCtx n G : ExtCtx GL n G->forall T,ExtCtx GL (S n) (extCtx G T).
 Implicit Arguments extSCtx [GL n G].
 
 Definition extSCtxInv GL n G T (xg:ExtCtx GL (S n) (extCtx G T)) (P:forall n G T,ExtCtx GL n (extCtx G T)->Type)
@@ -209,7 +223,6 @@ Definition extSCtxInv GL n G T (xg:ExtCtx GL (S n) (extCtx G T)) (P:forall n G T
 		with ctx _ _ => fun _ _=>eq_refl _ end T).
 	apply (tr (fun C=>C) (eq_sym (Peq _))).
 	generalize I.
-	change (P' _ _ xg).
 	refine (match xg as xg in ExtCtx _ Sn Gx return (Sn = S n)->(extCtx G T = Gx)->P' _ _ xg with
 		extOCtx => fun e=>match O_S _ e with end |
 		extSCtx _ _ xg0 _ => fun Hn HG=>_
@@ -228,82 +241,6 @@ Definition extSCtxInvEq GL n G P := match G
 return forall T (xg:ExtCtx GL n G) xgS,xgS xg = extSCtxInv (extSCtx xg T) P xgS
 	with ctx _ _ => fun _ _ _=>eq_refl _ end.
 Implicit Arguments extSCtxInvEq [GL n G T].
-
-(*
-Inductive ExtSCtx P : Ctx->Type := mkExtSCtx G : P G->forall T,ExtSCtx P (extCtx G T).
-Implicit Arguments mkExtSCtx [P G].
-
-Fixpoint ExtCtx GL n : Ctx->Type := match n with
-	O => eq GL |
-	S n => ExtSCtx (ExtCtx GL n)
-end.
-
-Definition extOCtx GL : ExtCtx GL O GL := eq_refl _.
-Definition extSCtx GL n G (xg:ExtCtx GL n G) T : ExtCtx GL (S n) (extCtx G T) := mkExtSCtx xg _.
-Implicit Arguments extSCtx [GL n G].
-
-Definition ExtCtx_rect GL (P:forall n G,ExtCtx GL n G->Type)
-	(xgO:P _ _ (extOCtx GL))
-	(xgS:forall n G (xg:ExtCtx GL n G) (IHxg:P _ _ xg) T,P _ _ (extSCtx xg T))
-: forall n G (xg:ExtCtx GL n G),P _ _ xg.
-	refine (fix ExtCtx_rect n G := match n return forall xg:ExtCtx GL n G,P _ _ xg with
-		O => _ |
-		S _ => _
-	end);simpl;intro;destruct xg.
-
-	exact xgO.
-
-	exact (xgS _ _ _ (ExtCtx_rect _ _ _) _).
-Defined.
-Implicit Arguments ExtCtx_rect [GL n G].
-
-Definition extSCtxInv P G T (xg:ExtSCtx P (extCtx G T)) (C:forall G T,ExtSCtx P (extCtx G T)->Type)
-	(xgS:forall xg:P G,C _ _ (mkExtSCtx xg T))
-: C _ _ xg.
-	pose (C' Gx xg := forall ne:IsExtCtx Gx,C _ _ (tr (ExtSCtx P) (extCtxUnfold ne) xg)).
-	assert (HC : forall G T xg,C G T xg = C (ctx (ctxSc G)) T xg).
-		exact (fun G=>match G with ctx _ _ => fun _ _=>eq_refl _ end).
-	apply (tr (fun X=>X) (eq_sym (HC _ _ _))).
-	generalize I.
-	change (C' _ xg).
-	refine (match xg as xg in ExtSCtx _ Gx return (extCtx G T = Gx)->C' Gx xg with
-		mkExtSCtx _ xg _ => _ end (eq_refl _)).
-	clear xg.
-	intro.
-	revert xg0.
-	apply (tr (fun s=>forall xg:P (projT1 s),C' _ (mkExtSCtx xg (projT2 s))) (extCtxInj H)).
-	clear G0 T0 H.
-	simpl.
-	intros ? ?.
-	simpl.
-	exact (tr (fun X=>X) (HC _ _ _) (xgS xg)).
-Defined.
-Implicit Arguments extSCtxInv [P G T].
-
-Definition extSCtxInvEq P G C := match G
-return forall T (xg:P G) xgS,xgS xg = extSCtxInv (mkExtSCtx xg T) C xgS
-	with ctx _ _ => fun _ _ _=>eq_refl _ end.
-Implicit Arguments extSCtxInvEq [P G T].
-*)
-
-(*
-(* Induction on the number of added entries *)
-Definition extCtxNInd D (GL:Ctx D) (P:forall n G,ExtCtx GL n G->Type)
-	(xgO:P _ _ (extOCtx GL))
-	(xgS:forall n,(forall G (xg:ExtCtx GL n G),P _ _ xg)->
-		forall G (xg:ExtCtx GL n G) T,P _ _ (extSCtx xg T))
-: forall n G (xg:ExtCtx GL n G),P _ _ xg.
-	refine (fix extCtxNInd n G := match n with
-		O => fun xg=>_ |
-		S _ => fun xg=>_
-	end).
-
-	exact (extOCtxInv xg _ xgO).
-
-	exact (extSCtxInv xg _ (xgS _ (extCtxNInd _))).
-Defined.
-Implicit Arguments extCtxNInd [D GL n G].
-*)
 
 Fixpoint unExt GL n G (xg:ExtCtx GL n G) : G->GL := match xg with
 	extOCtx => fun g=>g |
@@ -340,8 +277,9 @@ Definition extCtxComp GL n G (xg:ExtCtx GL n G) (GL':Ctx) (f:GL'->GL) : ExtCtxCo
 
 	exact (mkExtCtxComp (extOCtx _) f).
 
-	exact (mkExtCtxComp (extSCtx (xc_xg' IHxg) _)
-		(fun (g:sigT (fun g=>T (_ g)))=>existT _ (xc_f' IHxg (projT1 g)) (projT2 g))).
+	refine (mkExtCtxComp (extSCtx (xc_xg' IHxg) _)
+		(fun (g:sigT (fun g=>T (xc_f' IHxg g)))=>existT _ (xc_f' IHxg (projT1 g)) _)).
+	exact (projT2 g).
 Defined.
 Implicit Arguments extCtxComp [GL n G].
 
@@ -457,7 +395,7 @@ Defined.
 Implicit Arguments ctxProj_BumpHi [GL l G n T].
 
 Definition xcSubst GL P l G (xg:ExtCtx (extCtx GL P) l G) (p:forall g,P g) :=
-	extCtxComp xg GL (fun g=>existT _ g (p g)).
+	extCtxComp xg GL (fun g=>existT P g (p g)).
 Implicit Arguments xcSubst [GL P l G].
 
 Definition ctxSubst GL P l G (xg:ExtCtx (extCtx GL P) l G) p := xc_G' (xcSubst xg p).
@@ -651,3 +589,5 @@ ctxProj (tr (AtCtx G _) (atMBumpTEq b' xg a') (xa_a (atMBump xg (popCtx b' P))))
 	reflexivity.
 Defined.
 Implicit Arguments ctxProj_MBump [GL a b P G P'].
+
+End Context.
