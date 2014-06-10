@@ -2,20 +2,20 @@ Require Import Utils.
 
 Module Type CTXTYP.
 
-Parameter Tp : Type.
+Parameter Typ : Type.
 
-Parameter tpTp : Tp->Type.
-Coercion tpTp : Tp >-> Sortclass.
+Parameter typTp : Typ->Type.
+Coercion typTp : Typ >-> Sortclass.
 
 End CTXTYP.
 
-Module Context (Import Typ : CTXTYP).
+Module Contex (Import CtxTyp : CTXTYP).
 
 (* Semantic contexts *)
 
 Inductive CtxS : Type->Type :=
 	empCtxS : CtxS unit |
-	extCtxS G : CtxS G->forall T:G->Tp,CtxS (sigT T).
+	extCtxS G : CtxS G->forall T:G->Typ,CtxS (sigT T).
 Implicit Arguments extCtxS [G].
 
 Inductive Ctx : Type := ctx G (s:CtxS G).
@@ -39,7 +39,7 @@ Definition ctxInit G := match G with
 	ctx _ (extCtxS _ s _) => ctx s
 end.
 
-Definition ctxTop G : forall ne:IsExtCtx G,ctxInit G->Tp.
+Definition ctxTop G : forall ne:IsExtCtx G,ctxInit G->Typ.
 	destruct G.
 	destruct s;simpl;intro.
 
@@ -68,13 +68,13 @@ Defined.
 Implicit Arguments extCtxUnfold [G].
 
 Definition extCtxInj G1 G2 : forall T1 T2 (e:extCtx G1 T1 = extCtx G2 T2),
-existT (fun G:Ctx=>G->Tp) G1 T1 = existT _ G2 T2.
+existT (fun G:Ctx=>G->Typ) G1 T1 = existT _ G2 T2.
 	destruct G1 as (G1,s1).
 	destruct G2 as (G2,s2).
 	simpl.
 	intros.
 	generalize I.
-	apply (tr (fun Gx=>forall ne:IsExtCtx Gx,_ = existT (fun G:Ctx=>G->Tp) _ (ctxTop ne)) e).
+	apply (tr (fun Gx=>forall ne:IsExtCtx Gx,_ = existT (fun G:Ctx=>G->Typ) _ (ctxTop ne)) e).
 	simpl.
 	intro.
 	reflexivity.
@@ -84,17 +84,17 @@ Implicit Arguments extCtxInj [G1 G2 T1 T2].
 (* Strongly typed de Bruijn indexes *)
 
 (*
-Inductive AtCtx : forall G:Ctx,nat->(G->Tp)->Type :=
+Inductive AtCtx : forall G:Ctx,nat->(G->Typ)->Type :=
 	topCtx G T : AtCtx (extCtx G T) O (fun g=>T (projT1 g)) |
 	popCtx G n T : AtCtx G n T->forall T',AtCtx (extCtx G T') (S n) (fun g=>T (projT1 g)).
 *)
 
-Inductive PopCtx G (T':G->Tp) P : (sigT T'->Tp)->Type :=
+Inductive PopCtx G (T':G->Typ) P : (sigT T'->Typ)->Type :=
 	mkPopCtx T : P T->PopCtx G T' P (fun g=>T (projT1 g)).
 Implicit Arguments PopCtx [G].
 Implicit Arguments mkPopCtx [G].
 
-Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return (G->Tp)->Type with
+Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return (G->Typ)->Type with
 	empCtxS => fun T=>Empty_set |
 	extCtxS _ s T' => match n with
 		O => eq (fun g=>T' (projT1 g)) |
@@ -590,4 +590,4 @@ ctxProj (tr (AtCtx G _) (atMBumpTEq b' xg a') (xa_a (atMBump xg (popCtx b' P))))
 Defined.
 Implicit Arguments ctxProj_MBump [GL a b P G P'].
 
-End Context.
+End Contex.
