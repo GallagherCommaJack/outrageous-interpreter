@@ -8,33 +8,71 @@ Require Import TreeSyntax.
 Require Import Plus Minus.
 Require Import Compare_dec.
 
+(* Structured semantic types = type codes = universe construction *)
+
+Module TypCode <: CTXTYP.
+
+Inductive TypS : Type->Type :=
+	typUvS : TypS Type |
+	typElS T : TypS T |
+	typPiS A (B:A->Type) : TypS A->(forall a,TypS (B a))->TypS (forall a,B a).
+Implicit Arguments typPiS [A B].
+
+Inductive TypR : Type := typ T (s:TypS T).
+Implicit Arguments typ [T].
+
+Definition Typ := TypR.
+
+Definition typTp (T:Typ) := match T with typ T _ => T end.
+Coercion typTp : Typ >-> Sortclass.
+
+Definition typSc (T:Typ) : TypS T := match T with typ _ s => s end.
+
+Example X2s : TypS (forall (X0:Type) (X1:forall (x0:X0),Type),forall (x0:X0) (x1:X1 x0),Type).
+	exact (typPiS typUvS (fun X0=>
+		typPiS (typPiS (typElS X0) (fun x0=>typUvS)) (fun X1=>
+		typPiS (typElS X0) (fun x0=>
+		typPiS (typElS (X1 x0)) (fun x1=>
+		typUvS))))).
+Qed.
+
+Definition typUv : Typ := typ typUvS.
+Definition typEl T : Typ := typ (typElS T).
+Definition typPi (A:Typ) (B:A->Typ) : Typ := typ (typPiS (typSc A) (fun a=>typSc (B a))).
+
+End TypCode.
+Import TypCode.
+
+Module CodeContex := Contex TypCode.
+Import CodeContex.
+
 (* Interpretation relations *)
 
 (*
-Inductive SimpParamItrp (G:Ctx) F : list nat->forall T:G->Type,(forall g,F g->T g)->Type :=
+Inductive SimpParamItrp (G:Ctx) (F:G->Typ) : list nat->forall T:G->Typ,(forall g,F g->T g)->Type :=
 	spItrpNil : SimpParamItrp G F nil F (fun g f=>f) |
 	spItrpCons a la P (a':AtCtx G a P) B la' :
-		SimpParamItrp G F la (fun g=>forall p,B (existT _ g p)) la'->
-		SimpParamItrp G F (a :: la) (fun g=>B (existT _ g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
+		SimpParamItrp G F la (fun g=>typPi (P g) (fun p=>B (existT P g p))) la'->
+		SimpParamItrp G F (a :: la) (fun g=>B (existT P g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
 
-Inductive TreeFamItrp (G:Ctx) : treeFam->(G->Type)->Type :=
-	tfItrpUv : TreeFamItrp G Uv (fun g=>Type) |
+Inductive TreeFamItrp (G:Ctx) : treeFam->(G->Typ)->Type :=
+	tfItrpUv : TreeFamItrp G Uv (fun g=>typUv) |
 	tfItrpEl f la F (f':AtCtx G f F) la' :
-		SimpParamItrp G F la (fun g=>Type) la'->
-		TreeFamItrp G (El (f,la)) (fun g=>la' g (ctxProj f' g)) |
+		SimpParamItrp G F la (fun g=>typUv) la'->
+		TreeFamItrp G (El (f,la)) (fun g=>typEl (la' g (ctxProj f' g))) |
 	tfItrpPi A B A' B' : TreeFamItrp G A A'->TreeFamItrp (extCtx G A') B B'->
-		TreeFamItrp G (Pi A B) (fun g=>forall a,B' (existT _ g a)).
+		TreeFamItrp G (Pi A B) (fun g=>typPi (A' g) (fun a=>B' (existT A' g a))).
 *)
 
-Inductive SPItrpNil (G:Ctx) F : forall T:G->Type,(forall g,F g->T g)->Type :=
+Inductive SPItrpNil (G:Ctx) (F:G->Typ) : forall T:G->Typ,(forall g,F g->T g)->Type :=
 	spItrpNil : SPItrpNil G F F (fun g f=>f).
 Implicit Arguments spItrpNil [G].
 
-Inductive SPItrpCons (G:Ctx) F a (R:forall T,(forall g,F g->T g)->Type) :
-forall T:G->Type,(forall g,F g->T g)->Type :=
+Inductive SPItrpCons (G:Ctx) (F:G->Typ) a (R:forall T:G->Typ,(forall g,F g->T g)->Type) :
+forall T:G->Typ,(forall g,F g->T g)->Type :=
 	spItrpCons P (a':AtCtx G a P) B la' :
-		R (fun g=>forall p,B (existT _ g p)) la'->
-		SPItrpCons G F a R (fun g=>B (existT _ g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
+		R (fun g=>typPi (P g) (fun p=>B (existT P g p))) la'->
+		SPItrpCons G F a R (fun g=>B (existT P g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
 Implicit Arguments spItrpCons [G F a R P la'].
 
 Fixpoint SimpParamItrp G F la : forall T,_->Type := match la with
@@ -42,19 +80,19 @@ Fixpoint SimpParamItrp G F la : forall T,_->Type := match la with
 	a :: la => SPItrpCons G F a (SimpParamItrp G F la)
 end.
 
-Inductive TFItrpEl (G:Ctx) f la : (G->Type)->Type :=
+Inductive TFItrpEl (G:Ctx) f la : (G->Typ)->Type :=
 	tfItrpEl F (f':AtCtx G f F) la' :
-		SimpParamItrp G F la (fun g=>Type) la'->
-		TFItrpEl G f la (fun g=>la' g (ctxProj f' g)).
+		SimpParamItrp G F la (fun g=>typUv) la'->
+		TFItrpEl G f la (fun g=>typEl (la' g (ctxProj f' g))).
 Implicit Arguments tfItrpEl [G f la F la'].
 
-Inductive TFItrpPi (G:Ctx) (RA RB:forall G:Ctx,(G->Type)->Type) : (G->Type)->Type :=
+Inductive TFItrpPi (G:Ctx) (RA RB:forall G:Ctx,(G->Typ)->Type) : (G->Typ)->Type :=
 	tfItrpPi A' B' : RA G A'->RB (extCtx G A') B'->
-		TFItrpPi G RA RB (fun g=>forall a,B' (existT _ g a)).
+		TFItrpPi G RA RB (fun g=>typPi (A' g) (fun a=>B' (existT A' g a))).
 Implicit Arguments tfItrpPi [G RA RB A' B'].
 
-Fixpoint TreeFamItrp (G:Ctx) F : (G->Type)->Type := match F with
-	Uv => eq (fun g=>Type) |
+Fixpoint TreeFamItrp (G:Ctx) F : (G->Typ)->Type := match F with
+	Uv => eq (fun g=>typUv) |
 	El (f,la) => TFItrpEl G f la |
 	Pi A B => TFItrpPi G (fun G=>TreeFamItrp G A) (fun G=>TreeFamItrp G B)
 end.
@@ -74,6 +112,73 @@ Fixpoint TreeCtxItrp G : Ctx->Type := match G with
 	nil => eq empCtx |
 	F :: G => TCItrpCons (TreeCtxItrp G) F
 end.
+
+Lemma spItrpUniq G F la : forall T1 T2 la1 la2,SimpParamItrp G F la T1 la1->SimpParamItrp G F la T2 la2->
+(existT (fun T:G->Typ=>forall g,F g->T g) T1 la1 = existT _ T2 la2).
+	induction la;simpl;intros.
+
+	destruct H.
+	destruct H0.
+	reflexivity.
+Qed.
+Implicit Arguments spItrpUniq [G F la T1 T2 la1 la2].
+
+Lemma tfItrpUniq F : forall G F1 F2,TreeFamItrp G F F1->TreeFamItrp G F F2->(F1 = F2).
+	induction F as [| | A ? B ?];[| destruct p as (f,la) |];simpl;intros.
+
+	rewrite <- H.
+	rewrite <- H0.
+	reflexivity.
+
+	destruct X as (F1,f1,la1).
+	destruct X0 as (F2,f2,la2).
+	revert la2 s0.
+	apply (tr (fun xa=>forall la2,SimpParamItrp G (xa_T xa) la (fun g=>typUv) la2->
+		(_ = fun g=>typEl (la2 g (ctxProj (xa_a xa) g)))) (atCtxUniq f1 f2)).
+	simpl.
+	clear F2 f2.
+	intros.
+	pose (el' T la' g :=
+		match T g as Tg return (F1 g->typTp Tg)->Typ with typ _ s =>
+		match s return (F1 g->typTp (typ s))->Typ with
+			typUvS => fun lag=>typEl (lag (ctxProj f1 g)) |
+			_ => fun _=>typUv
+		end end (la' g)).
+	simpl in el'.
+	change ((fun g=>typEl (la1 g (ctxProj f1 g))) = el' (fun g=>typUv) la2).
+	apply (tr (fun Tla=>_ = el' _ (projT2 Tla)) (spItrpUniq s X)).
+	subst el'.
+	simpl.
+	reflexivity.
+
+	destruct X as (A1,B1).
+	destruct X0 as (A2,B2).
+	revert B2 t2.
+	rewrite <- (IHF1 _ _ _ t t1).
+	clear A2 t1.
+	intros.
+	rewrite <- (IHF2 _ _ _ t0 t2).
+	reflexivity.
+Qed.
+Implicit Arguments tfItrpUniq [F G F1 F2].
+
+Lemma tcItrpUniq G : forall G1 G2,TreeCtxItrp G G1->TreeCtxItrp G G2->(G1 = G2).
+	induction G;simpl;intros.
+
+	rewrite <- H.
+	rewrite <- H0.
+	reflexivity.
+
+	destruct X as (G1,F1).
+	destruct X0 as (G2,F2).
+	revert F2 t2.
+	rewrite <- (IHG _ _ t t1).
+	clear G2 t1.
+	intros.
+	rewrite <- (tfItrpUniq t0 t2).
+	reflexivity.
+Qed.
+Implicit Arguments tcItrpUniq [G G1 G2].
 
 Lemma spItrpBump G F n l la GL P (xg:ExtCtx GL l G) : forall T la',SimpParamItrp G F (laBump n l la) T la'->
 SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T) (elBump P xg la').
