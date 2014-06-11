@@ -15,8 +15,8 @@ Inductive treeFam : Set :=
 
 (* One-context substitutions *)
 
-Definition pBump n l (p:nat * _) := let (f,la) := p in (varBump n l f,laBump n l la).
-Definition pSubst (p:nat * _) l b := let (f,la) := p in (varSubst l b f,laSubst la l b).
+Definition pBump n l (p:_ * _) := let (f,la) := p in (varBump n l f,laBump n l la).
+Definition pSubst (p:_ * _) l b := let (f,la) := p in (varSubst l b f,laSubst la l b).
 
 Fixpoint fBump n l F := match F with
 	Uv => Uv |
