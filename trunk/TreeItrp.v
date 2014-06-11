@@ -18,6 +18,14 @@ Inductive TypS : Type->Type :=
 	typPiS A (B:A->Type) : TypS A->(forall a,TypS (B a))->TypS (forall a,B a).
 Implicit Arguments typPiS [A B].
 
+Example X2s : TypS (forall (X0:Type) (X1:forall (x0:X0),Type),forall (x0:X0) (x1:X1 x0),Type).
+	exact (typPiS typUvS (fun X0=>
+		typPiS (typPiS (typElS X0) (fun x0=>typUvS)) (fun X1=>
+		typPiS (typElS X0) (fun x0=>
+		typPiS (typElS (X1 x0)) (fun x1=>
+		typUvS))))).
+Qed.
+
 Inductive TypR : Type := typ T (s:TypS T).
 Implicit Arguments typ [T].
 
@@ -27,14 +35,6 @@ Definition typTp (T:Typ) := match T with typ T _ => T end.
 Coercion typTp : Typ >-> Sortclass.
 
 Definition typSc (T:Typ) : TypS T := match T with typ _ s => s end.
-
-Example X2s : TypS (forall (X0:Type) (X1:forall (x0:X0),Type),forall (x0:X0) (x1:X1 x0),Type).
-	exact (typPiS typUvS (fun X0=>
-		typPiS (typPiS (typElS X0) (fun x0=>typUvS)) (fun X1=>
-		typPiS (typElS X0) (fun x0=>
-		typPiS (typElS (X1 x0)) (fun x1=>
-		typUvS))))).
-Qed.
 
 Definition typUv : Typ := typ typUvS.
 Definition typEl T : Typ := typ (typElS T).
@@ -120,6 +120,26 @@ Lemma spItrpUniq G F la : forall T1 T2 la1 la2,SimpParamItrp G F la T1 la1->Simp
 	destruct H.
 	destruct H0.
 	reflexivity.
+
+destruct X as (P1,a1,B1,f1).
+destruct X0 as (P2,a2,B2,f2).
+simpl in f1,f2.
+revert B2 f2 t1 t2.
+apply (tr (fun xa=>forall B2 f2,
+	TreeFamItrp (extCtx G (xa_T xa)) B B2->
+	TreeParamItrp G f (fun g=>typPi (xa_T xa g) (fun p=>B2 (existT _ g p))) f2->
+	(_ = existT (fun T:G->Typ,forall g,T g)
+		(fun g=>B2 (existT _ g (ctxProj (xa_a xa) g))) (fun g=>f2 g (ctxProj (xa_a xa) g))))
+(atCtxUniq a1 a2)).
+simpl in B1 |- *.
+clear P2 a2.
+intros.
+revert f2 X0.
+rewrite <- (tfItrpUniq t X).
+clear t B2 X.
+intros.
+pose proof (IHf _ _ _ _ _ t0 X0).
+(* Crap *)
 Qed.
 Implicit Arguments spItrpUniq [G F la T1 T2 la1 la2].
 
