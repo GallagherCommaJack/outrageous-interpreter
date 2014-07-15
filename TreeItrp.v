@@ -40,6 +40,26 @@ Definition typUv : Typ := typ typUvS.
 Definition typEl T : Typ := typ (typElS T).
 Definition typPi (A:Typ) (B:A->Typ) : Typ := typ (typPiS (typSc A) (fun a=>typSc (B a))).
 
+(*
+Definition IsTypPi (T:Typ) := match T with
+	typ _ (typPiS _ _ _ _) => True |
+	_ => False
+end.
+
+Definition typDom (T:Typ) := match T with
+	typ _ (typPiS _ _ A _) => typ A |
+	_ => T
+end.
+
+Definition typCdm T : typDom T->Typ.
+	destruct T.
+	exact (match s as s return typDom (typ s)->Typ with
+		typPiS _ _ _ B => fun a=>typ (B a) |
+		_ => fun _=>typUv
+	end).
+Defined.
+*)
+
 End TypCode.
 Import TypCode.
 
@@ -51,7 +71,7 @@ Import CodeContex.
 (*
 Inductive SimpParamItrp (G:Ctx) (F:G->Typ) : list nat->forall T:G->Typ,(forall g,F g->T g)->Type :=
 	spItrpNil : SimpParamItrp G F nil F (fun g f=>f) |
-	spItrpCons a la P (a':AtCtx G a P) B la' :
+	spItrpCons a la T P (a':AtCtx G a P) B la' :
 		SimpParamItrp G F la (fun g=>typPi (P g) (fun p=>B (existT P g p))) la'->
 		SimpParamItrp G F (a :: la) (fun g=>B (existT P g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
 
@@ -121,26 +141,38 @@ Lemma spItrpUniq G F la : forall T1 T2 la1 la2,SimpParamItrp G F la T1 la1->Simp
 	destruct H0.
 	reflexivity.
 
-destruct X as (P1,a1,B1,f1).
-destruct X0 as (P2,a2,B2,f2).
-simpl in f1,f2.
-revert B2 f2 t1 t2.
-apply (tr (fun xa=>forall B2 f2,
-	TreeFamItrp (extCtx G (xa_T xa)) B B2->
-	TreeParamItrp G f (fun g=>typPi (xa_T xa g) (fun p=>B2 (existT _ g p))) f2->
-	(_ = existT (fun T:G->Typ,forall g,T g)
-		(fun g=>B2 (existT _ g (ctxProj (xa_a xa) g))) (fun g=>f2 g (ctxProj (xa_a xa) g))))
+destruct X as (P1,a1,B1,la1).
+destruct X0 as (P2,a2,B2,la2).
+simpl in la1,la2.
+revert B2 la2 s0.
+apply (tr (fun xa=>forall B2 la2,
+	SimpParamItrp G F la (fun g=>typPi (xa_T xa g) (fun p=>B2 (existT (xa_T xa) g p))) la2->
+	(_ = existT (fun T:G->Typ,forall g,F g->T g)
+		(fun g=>B2 (existT _ g (ctxProj (xa_a xa) g))) (fun g f=>la2 g f (ctxProj (xa_a xa) g))))
 (atCtxUniq a1 a2)).
-simpl in B1 |- *.
+simpl.
 clear P2 a2.
 intros.
-revert f2 X0.
-rewrite <- (tfItrpUniq t X).
-clear t B2 X.
-intros.
-pose proof (IHf _ _ _ _ _ t0 X0).
-(* Crap *)
-Qed.
+pose proof (IHla _ _ _ _ s X).
+clear IHla s X.
+(* Uh oh *)
+(*pose (PBla2 := existT (fun T:G->Typ,forall g,F g->T g) (fun g=>typPi (P1 g) (fun p=>B2 (existT _ g p))) la2).
+pose (fun g=>typDom (projT1 PBla2 g)).
+pose (fun g=>typCdm (projT1 PBla2 g)).
+pose (projT2 PBla2).
+simpl in t,t0,t1.
+(*assert (forall g,typTp (projT1 PBla2 g) = typTp ((fun g=>typDom (projT1 PBla2 g)) g)).
+intro.
+simpl.*)
+Check (fun (PBla2:{T : G->Typ & forall g,F g->T g})
+	(H:(fun g=>typ (typSc (P1 g))) = (fun g=>typDom (projT1 PBla2 g)))=>
+let a' := tr (AtCtx G a) H a1 in
+(existT (fun T:G->Typ,forall g,F g->T g)
+	(fun g=>typ (typSc (B1 (existT _ g (ctxProj a1 g))))) (fun g f=>la1 g f (ctxProj a1 g)) =
+	existT (fun T:G->Typ,forall g,F g->T g)
+	(fun g=>typCdm (projT1 PBla2 g) (ctxProj a' g)) (fun g f=>projT2 PBla2 g f (ctxProj a' g)))).
+Qed.*)
+Admitted.
 Implicit Arguments spItrpUniq [G F la T1 T2 la1 la2].
 
 Lemma tfItrpUniq F : forall G F1 F2,TreeFamItrp G F F1->TreeFamItrp G F F2->(F1 = F2).
@@ -200,54 +232,136 @@ Lemma tcItrpUniq G : forall G1 G2,TreeCtxItrp G G1->TreeCtxItrp G G2->(G1 = G2).
 Qed.
 Implicit Arguments tcItrpUniq [G G1 G2].
 
+(* TODO: Factor out variable and inequality gook *)
+Require Import Le Lt.
+
+Lemma lt_ltdLo l i : (i < l)->ltd i l.
+	intro.
+	unfold ltd.
+	rewrite (proj1 (nat_compare_lt _ _) H).
+	exact I.
+Qed.
+Implicit Arguments lt_ltdLo [l i].
+
+Lemma lt_ltdHi n l i : ~(i < l)->ltd l (S n + i).
+	intro.
+	unfold ltd.
+	rewrite (proj1 (nat_compare_lt _ _)).
+		exact I.
+	simpl.
+	apply le_n_S.
+	rewrite <- plus_comm.
+	apply le_plus_trans.
+	exact (not_lt _ _ H).
+Qed.
+Implicit Arguments lt_ltdHi [l i].
+
+Definition atBump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n l i) T) : AtCtx (ctxBump P xg) (varBump (S n) l i) (elBump P xg T).
+	destruct (lt_dec i l) as [Ho | Ho].
+
+	apply (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) (eq_sym (varBumpLo _ _ _ Ho))).
+	exact (atBumpLo P xg (tr (fun v=>AtCtx G v T) (varBumpLo _ _ _ Ho) a) (lt_ltdLo Ho)).
+
+	apply (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) (eq_sym (varBumpHi _ _ _ Ho))).
+	exact (atBumpHi P xg (tr (fun v=>AtCtx G v T) (varBumpHi _ _ _ Ho) a) (lt_ltdHi n Ho)).
+Defined.
+Implicit Arguments atBump [GL n l G i T].
+
+Definition ctxProj_Bump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n l i) T) : elBump P xg (ctxProj a) = ctxProj (atBump P xg a).
+	unfold atBump.
+	destruct (lt_dec i l) as [Ho | Ho].
+
+	refine (match eq_sym (varBumpLo (S n) l i Ho) as p
+		return _ = ctxProj (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) p _)
+		with eq_refl => _ end).
+	simpl.
+	apply (tr _ (ctxProj_BumpLo P xg _ _)).
+	refine (match varBumpLo n l i Ho as p return
+		elBump P xg (ctxProj a) =
+		elBump P xg (ctxProj (tr (fun v=>AtCtx G v T) p a))
+	with eq_refl => _ end).
+	simpl.
+	reflexivity.
+
+	refine (match eq_sym (varBumpHi (S n) l i Ho) as p
+		return _ = ctxProj (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) p _)
+		with eq_refl => _ end).
+	simpl.
+	apply (tr _ (ctxProj_BumpHi P xg _ _)).
+	refine (match varBumpHi n l i Ho as p return
+		elBump P xg (ctxProj a) =
+		elBump P xg (ctxProj (tr (fun v=>AtCtx G v T) p a))
+	with eq_refl => _ end).
+	simpl.
+	reflexivity.
+Defined.
+Implicit Arguments ctxProj_Bump [GL n l G i T].
+
 Lemma spItrpBump G F n l la GL P (xg:ExtCtx GL l G) : forall T la',SimpParamItrp G F (laBump n l la) T la'->
 SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T) (elBump P xg la').
-	(*induction la;simpl.
+	induction la;simpl.
 
 	intros.
-	apply spItrpNilInv with (1 := X).
+	destruct H.
+	apply spItrpNil.
+
+	intros.
+	destruct X.
+	pose proof (spItrpCons (atBump P xg a')
+		(fun g=>B (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))
+		(IHla _ _ s)).
+	simpl in X.
+	rewrite <- ctxProj_Bump in X.
+	exact X.
+Qed.
+
+(*
+Lemma spItrpBump G F n l la GL P (xg:ExtCtx GL l G) : forall T la',SimpParamItrp G F (laBump n l la) T la'->
+SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T) (elBump P xg la').
+	induction la;simpl.
+
+	intros.
+	destruct H.
 	apply spItrpNil.
 
 	intros ? ?.
 	destruct (lt_dec a l) as [Ho | Ho].
-		rewrite (proj1 (nat_compare_lt _ _) Ho).
+		rewrite varBumpLo with (1 := Ho).
+		rewrite varBumpLo with (1 := Ho).
 		intro.
-		apply spItrpConsInv with (1 := X).
-		clear T la' X.
-		intros.
-		pose proof (spItrpCons _ _ _ _ _ _ (atBumpGLo P xg a' Ho)
-			(fun d g=>B d (existT _ (xc_f' (xgBumpG P xg) d (projT1 g)) (projT2 g)))
-			_ (IHla _ _ X)).
-		simpl in X0.
-		rewrite ctxProj_BumpGLo in X0.
-		exact X0.
+		destruct X.
+		assert (ltd a l).
+			unfold ltd.
+			rewrite (proj1 (nat_compare_lt _ _) Ho).
+			exact I.
+		pose proof (spItrpCons (atBumpLo P xg a' H)
+			(fun g=>B (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))
+			(IHla _ _ s)).
+		simpl in X.
+		rewrite <- ctxProj_BumpLo in X.
+		exact X.
 
-		assert (nolt : forall k,k = match nat_compare a l with
-			Lt => a |
-			_ => k
-		end).
-			intro.
-			destruct (nat_compare_spec a l);try reflexivity.
-			destruct (Ho H).
-		rewrite <- nolt.
-		rewrite <- nolt.
-		clear nolt.
+		rewrite varBumpHi with (1 := Ho).
+		rewrite varBumpHi with (1 := Ho).
 		intro.
-		apply spItrpConsInv with (1 := X).
-		clear T la' X.
-		intros.
-		assert (l <= n + a).
+		destruct X.
+		assert (ltd l (S n + a)).
+			unfold ltd.
+			rewrite (proj1 (nat_compare_lt _ _)).
+				exact I.
+			simpl.
+			apply le_n_S.
 			rewrite <- plus_comm.
 			apply le_plus_trans.
 			exact (not_lt _ _ Ho).
-		pose proof (spItrpCons _ _ _ _ _ _ (atBumpGHi P xg a' H)
-			(fun d g=>B d (existT _ (xc_f' (xgBumpG P xg) d (projT1 g)) (projT2 g)))
-			_ (IHla _ _ X)).
-		simpl in X0.
-		rewrite ctxProj_BumpGHi in X0.
-		exact X0.
-Qed.*)
-Admitted.
+		pose proof (spItrpCons (atBumpHi P xg a' H)
+			(fun g=>B (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))
+			(IHla _ _ s)).
+		simpl in X.
+		rewrite <- ctxProj_BumpHi in X.
+		exact X.
+Qed.
+*)
 
 Lemma spItrpBump_O G F n la T la' P : SimpParamItrp G F (laBump n O la) T la'->
 SimpParamItrp (extCtx G P) (fun g=>F (projT1 g)) (laBump (S n) O la) (fun g=>T (projT1 g)) (fun g=>la' (projT1 g)).
@@ -256,25 +370,50 @@ Qed.
 
 Lemma tfItrpBump n F GL P : forall G l F' (xg:ExtCtx GL l G),TreeFamItrp G (fBump n l F) F'->
 TreeFamItrp (ctxBump P xg) (fBump (S n) l F) (elBump P xg F').
-	(*induction F as [| p];[| destruct p as (f,la)];simpl;intros.
+	induction F as [| | A ? B ?];[| destruct p as (f,la) |];simpl;intros ? ? ? ?.
 
-	rewrite sfItrpNilInv with (1 := X).
-	apply sfItrpNil.
+	intro.
+	rewrite <- H.
+	reflexivity.
 
-	apply sfItrpConsInv with (1 := X).
-	clear F' X.
-	intros B ? ? F'.
-	pose (A d g := la' d g (tctxProj f' d)).
-	change (forall d,extCtx G A d->Type) in F'.
-	pose (F_ d g := forall p,F' d (existT _ g p)).
-	change (SimpParamItrp G B (laBumpG n l la) (fun d g=>Type) la'->
-		SimpFamItrp D (extCtx G A) (fBumpG n (S l) F) F'->
-		SimpFamItrp D (ctxBumpG P xg) ((f,laBumpG (S n) l la) :: fBumpG (S n) (S l) F) (elBumpG P xg F_)).
-	intros Xp Xf.
-	apply sfItrpCons with (la' := elBumpG P xg la') (2 := IHF _ _ _ (extSCtx xg _) Xf).
-	apply spItrpBumpG with (1 := Xp) (xg := xg).
-Qed.*)
-Admitted.
+	destruct (lt_dec f l) as [Ho | Ho].
+		rewrite varBumpLo with (1 := Ho).
+		rewrite varBumpLo with (1 := Ho).
+		intro.
+		destruct X.
+		assert (ltd f l).
+			unfold ltd.
+			rewrite (proj1 (nat_compare_lt _ _) Ho).
+			exact I.
+		pose proof (tfItrpEl (atBumpLo P xg f' H) (spItrpBump _ _ _ _ _ _ P xg _ _ s)).
+		rewrite <- ctxProj_BumpLo in X.
+		exact X.
+
+		rewrite varBumpHi with (1 := Ho).
+		rewrite varBumpHi with (1 := Ho).
+		intro.
+		destruct X.
+		assert (ltd l (S n + f)).
+			unfold ltd.
+			rewrite (proj1 (nat_compare_lt _ _)).
+				exact I.
+			simpl.
+			apply le_n_S.
+			rewrite <- plus_comm.
+			apply le_plus_trans.
+			exact (not_lt _ _ Ho).
+		pose proof (tfItrpEl (atBumpHi P xg f' H) (spItrpBump _ _ _ _ _ _ P xg _ _ s)).
+		rewrite <- ctxProj_BumpHi in X.
+		exact X.
+
+	intro.
+	destruct X.
+	apply (tfItrpPi (A' := elBump P xg A')
+	(B' := fun g=>B' (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))).
+		exact (IHF1 _ _ _ _ t).
+
+		exact (IHF2 _ _ _ (extSCtx xg A') t0).
+Qed.
 
 Lemma tfItrpBump_O G n F F' P : TreeFamItrp G (fBump n O F) F'->
 TreeFamItrp (extCtx G P) (fBump (S n) O F) (fun g=>F' (projT1 g)).
@@ -285,10 +424,10 @@ Lemma spItrpSubst G F la l b GL P (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P
 	SimpParamItrp G F la T la'->
 SimpParamItrp (ctxSubst xg (ctxProj b')) (elSubst xg F (ctxProj b')) (laSubst la l b)
 (elSubst xg T (ctxProj b')) (elSubst xg la' (ctxProj b')).
-	(*induction la;intros ? ?;simpl.
+	induction la;intros ? ?;simpl.
 
 	intro.
-	apply spItrpNilInv with (1 := X).
+	destruct H.
 	apply spItrpNil.
 
 	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
@@ -351,8 +490,7 @@ SimpParamItrp (ctxSubst xg (ctxProj b')) (elSubst xg F (ctxProj b')) (laSubst la
 		simpl in X0.
 		rewrite ctxProj_SubstGt in X0.
 		exact X0.
-Qed.*)
-Admitted.
+Qed.
 
 Lemma spItrpSubst_O G P F la b T la' (b':AtCtx G b P) : SimpParamItrp (extCtx G P) F la T la'->
 SimpParamItrp G (fun g=>F (existT _ g (ctxProj b' g))) (laSubst la O b) _ (fun g=>la' (existT _ g (ctxProj b' g))).
@@ -417,7 +555,7 @@ C.
 	intro.
 	induction X;intros ? XG rtn.
 
-	apply (rtn (fun g=>Type)).
+	apply (rtn (fun g=>typUv)).
 	reflexivity.
 
 	apply tcItrpProj with (i := f) (2 := XG).
@@ -431,7 +569,7 @@ C.
 	rewrite <- XU.
 	clear T' XU.
 	intros.
-	apply (rtn (fun g=>la' g (ctxProj f' g))).
+	apply (rtn (fun g=>typEl (la' g (ctxProj f' g)))).
 	exact (tfItrpEl f' Xla).
 
 	clear X1 X2.
@@ -441,7 +579,7 @@ C.
 		simpl.
 		exact (tcItrpCons XG XA).
 	intros B' XB.
-	apply (rtn (fun g=>forall a,B' (existT _ g a))).
+	apply (rtn (fun g=>typPi (A' g) (fun a=>B' (existT _ g a)))).
 	simpl.
 	exact (tfItrpPi XA XB).
 Qed.
@@ -464,21 +602,23 @@ ExSimpParamItrp G' F' la T.
 	destruct (IHSimpParamGood _ _ XG XF) as (?,?,Xla,XT).
 	simpl in XT.
 	revert la' Xla.
-	destruct XT as (A0,B'0,XA0,XB0).
+	destruct XT as (A0,B',XA0,XB).
+	simpl.
+	revert B' XB.
+	rewrite <- (tfItrpUniq XA XA0).
+	clear A0 XA0.
 	intros.
-	apply tfItrpTotalNest with (1 := X) (G' := extCtx G' A).
+	apply (exSimpParamItrp (fun g=>B' (existT _ g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g))).
 		simpl.
-		exact (tcItrpCons XG XA).
-	clear X.
-	intros B' XB.
-	(* Aaaaaand we're screwed *)
-	apply (exSimpParamItrp (fun g=>B' (existT _ g (ctxProj a' g))) (fun g f=>la'
-		apply spItrpCons with (a' := a') (1 := Xp).
+		exact (spItrpCons a' B' Xla).
 
-		apply sfItrpSubst_O with (1 := Xf).
+		apply tfItrpSubst_O with (1 := XB).
 Qed.
 
-Lemma tfItrpTotal G F C : TreeFamGoodPG G F->forall G',TreeCtxItrp G G'->
+Lemma tfItrpTotal G F G' C : TreeFamGoodPG G F->TreeCtxItrp G G'->
 	(forall F',TreeFamItrp G' F F'->C)->
 C.
+	intros ? XG.
+	apply tfItrpTotalNest with (G := G) (2 := XG).
+	exact (tfGoodMap spItrpTotal H).
 Qed.
