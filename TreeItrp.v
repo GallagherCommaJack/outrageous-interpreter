@@ -297,6 +297,88 @@ Definition ctxProj_Bump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n 
 Defined.
 Implicit Arguments ctxProj_Bump [GL n l G i T].
 
+Definition atSubst GL b P l G a T (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P) : forall a':AtCtx G a T,
+AtCtx (ctxSubst xg (ctxProj b')) (varSubst l b a) (elSubst xg T (ctxProj b')).
+	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
+
+	intro.
+	apply (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstLt _ _ _ Ho))).
+	exact (atSubstLt xg a' (lt_ltdLo Ho) (ctxProj b')).
+
+	intro.
+	apply (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstEq _ _ _ Ho))).
+	assert (a_ := tr (fun v=>AtCtx G v T) Ho a').
+	clear a Ho a'.
+	simpl in a_.
+	assert (b0 := tr (AtCtx G _) (atMBumpTEq b' xg a_) (xa_a (atMBump xg (popCtx b' P)))).
+	assert (Ha := eq_sym (plus_n_Sm l b)).
+	assert (b1 := tr (fun n=>AtCtx G n T) Ha b0).
+	simpl in b1.
+	exact (atSubstGt xg b1 (lt_ltdLo (le_n_S l _ (le_plus_l l b))) (ctxProj b')).
+
+	apply (tr (fun v=>_->AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstGt _ _ _ Ho))).
+	destruct a.
+		exact (match lt_n_O _ Ho with end).
+	intro a'.
+	simpl.
+	exact (atSubstGt xg a' (lt_ltdLo Ho) (ctxProj b')).
+Defined.
+Implicit Arguments atSubst [GL b P l G a T].
+
+Definition ctxProj_Subst GL b P l G a T (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P) : forall a':AtCtx G a T,
+elSubst xg (ctxProj a') (ctxProj b') = ctxProj (atSubst xg b' a').
+	unfold atSubst.
+	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
+
+	intro.
+	refine (match eq_sym (varSubstLt l b a Ho) as p
+		return _ = ctxProj (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _)
+		with eq_refl => _ end).
+	simpl.
+	apply ctxProj_SubstLt.
+
+	intro.
+	refine (match eq_sym (varSubstEq l b a Ho) as p
+		return _ = ctxProj (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _)
+		with eq_refl => _ end).
+	simpl.
+	set (a_ := tr (fun v=>AtCtx G v T) Ho a').
+	simpl in a_.
+	pose (b0 := tr (AtCtx G _) (atMBumpTEq b' xg a_) (xa_a (atMBump xg (popCtx b' P)))).
+	simpl in b0.
+	fold b0.
+	set (Ha := eq_sym (plus_n_Sm l b)).
+	set (b1 := tr (fun n=>AtCtx G n T) Ha b0).
+	simpl in b1.
+	apply (tr _ (ctxProj_SubstGt xg _ _ _)).
+	subst b1.
+	refine (match Ha as Ha
+		return _ = elSubst xg (ctxProj (tr (fun n=>AtCtx G n T) Ha b0)) _
+		with eq_refl => _ end).
+	simpl.
+	clear Ha.
+	subst b0.
+	apply (tr (fun X=>_ = elSubst xg X _) (eq_sym (ctxProj_MBump b' xg a_))).
+	apply (tr _ (ctxProj_SubstEq xg a_ _)).
+	subst a_.
+	refine (match Ho as Ho return
+		elSubst xg _ _ =
+		elSubst xg (ctxProj (tr _ Ho a')) _
+	with eq_refl => _ end).
+	simpl.
+	reflexivity.
+
+	refine (match eq_sym (varSubstGt l b a Ho) as p
+		return forall a',_ = ctxProj (tr (fun v=>_->AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _ a')
+		with eq_refl => _ end).
+	simpl.
+	destruct a.
+		exact (match lt_n_O _ Ho with end).
+	intro.
+	apply ctxProj_SubstGt.
+Defined.
+Implicit Arguments ctxProj_Subst [GL b P l G a T].
+
 Lemma spItrpBump G F n l la GL P (xg:ExtCtx GL l G) : forall T la',SimpParamItrp G F (laBump n l la) T la'->
 SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T) (elBump P xg la').
 	induction la;simpl.
@@ -315,54 +397,6 @@ SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T)
 	exact X.
 Qed.
 
-(*
-Lemma spItrpBump G F n l la GL P (xg:ExtCtx GL l G) : forall T la',SimpParamItrp G F (laBump n l la) T la'->
-SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T) (elBump P xg la').
-	induction la;simpl.
-
-	intros.
-	destruct H.
-	apply spItrpNil.
-
-	intros ? ?.
-	destruct (lt_dec a l) as [Ho | Ho].
-		rewrite varBumpLo with (1 := Ho).
-		rewrite varBumpLo with (1 := Ho).
-		intro.
-		destruct X.
-		assert (ltd a l).
-			unfold ltd.
-			rewrite (proj1 (nat_compare_lt _ _) Ho).
-			exact I.
-		pose proof (spItrpCons (atBumpLo P xg a' H)
-			(fun g=>B (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))
-			(IHla _ _ s)).
-		simpl in X.
-		rewrite <- ctxProj_BumpLo in X.
-		exact X.
-
-		rewrite varBumpHi with (1 := Ho).
-		rewrite varBumpHi with (1 := Ho).
-		intro.
-		destruct X.
-		assert (ltd l (S n + a)).
-			unfold ltd.
-			rewrite (proj1 (nat_compare_lt _ _)).
-				exact I.
-			simpl.
-			apply le_n_S.
-			rewrite <- plus_comm.
-			apply le_plus_trans.
-			exact (not_lt _ _ Ho).
-		pose proof (spItrpCons (atBumpHi P xg a' H)
-			(fun g=>B (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))
-			(IHla _ _ s)).
-		simpl in X.
-		rewrite <- ctxProj_BumpHi in X.
-		exact X.
-Qed.
-*)
-
 Lemma spItrpBump_O G F n la T la' P : SimpParamItrp G F (laBump n O la) T la'->
 SimpParamItrp (extCtx G P) (fun g=>F (projT1 g)) (laBump (S n) O la) (fun g=>T (projT1 g)) (fun g=>la' (projT1 g)).
 	apply spItrpBump with (P := P) (xg := extOCtx G).
@@ -370,43 +404,16 @@ Qed.
 
 Lemma tfItrpBump n F GL P : forall G l F' (xg:ExtCtx GL l G),TreeFamItrp G (fBump n l F) F'->
 TreeFamItrp (ctxBump P xg) (fBump (S n) l F) (elBump P xg F').
-	induction F as [| | A ? B ?];[| destruct p as (f,la) |];simpl;intros ? ? ? ?.
+	induction F as [| | A ? B ?];[| destruct p as (f,la) |];simpl;intros.
 
-	intro.
 	rewrite <- H.
 	reflexivity.
 
-	destruct (lt_dec f l) as [Ho | Ho].
-		rewrite varBumpLo with (1 := Ho).
-		rewrite varBumpLo with (1 := Ho).
-		intro.
-		destruct X.
-		assert (ltd f l).
-			unfold ltd.
-			rewrite (proj1 (nat_compare_lt _ _) Ho).
-			exact I.
-		pose proof (tfItrpEl (atBumpLo P xg f' H) (spItrpBump _ _ _ _ _ _ P xg _ _ s)).
-		rewrite <- ctxProj_BumpLo in X.
-		exact X.
+	destruct X.
+	pose proof (tfItrpEl (atBump P xg f') (spItrpBump _ _ _ _ _ _ P xg _ _ s)).
+	rewrite <- ctxProj_Bump in X.
+	exact X.
 
-		rewrite varBumpHi with (1 := Ho).
-		rewrite varBumpHi with (1 := Ho).
-		intro.
-		destruct X.
-		assert (ltd l (S n + f)).
-			unfold ltd.
-			rewrite (proj1 (nat_compare_lt _ _)).
-				exact I.
-			simpl.
-			apply le_n_S.
-			rewrite <- plus_comm.
-			apply le_plus_trans.
-			exact (not_lt _ _ Ho).
-		pose proof (tfItrpEl (atBumpHi P xg f' H) (spItrpBump _ _ _ _ _ _ P xg _ _ s)).
-		rewrite <- ctxProj_BumpHi in X.
-		exact X.
-
-	intro.
 	destruct X.
 	apply (tfItrpPi (A' := elBump P xg A')
 	(B' := fun g=>B' (existT _ (xc_f' (xcBump P xg) (projT1 g)) (projT2 g)))).
@@ -424,72 +431,18 @@ Lemma spItrpSubst G F la l b GL P (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P
 	SimpParamItrp G F la T la'->
 SimpParamItrp (ctxSubst xg (ctxProj b')) (elSubst xg F (ctxProj b')) (laSubst la l b)
 (elSubst xg T (ctxProj b')) (elSubst xg la' (ctxProj b')).
-	induction la;intros ? ?;simpl.
+	induction la;simpl;intros.
 
-	intro.
 	destruct H.
 	apply spItrpNil.
 
-	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
-		intro.
-		rewrite (proj1 (nat_compare_lt _ _) Ho).
-		apply spItrpConsInv with (1 := X).
-		clear T la' X.
-		intros.
-		pose proof (spItrpCons _ _ _ _ _ _ (atSubstLt xg a' Ho (ctxProj b'))
-			(fun d g=>B d (existT _ (xc_f' (xgSubst xg (ctxProj b')) d (projT1 g)) (projT2 g)))
-			_ (IHla _ _ X)).
-		simpl in X0.
-		rewrite ctxProj_SubstLt in X0.
-		exact X0.
-
-		intro.
-		rewrite (proj2 (nat_compare_eq_iff _ _) Ho).
-		revert xg IHla.
-		apply (tr (fun _=>_) Ho).
-		clear l Ho.
-		intros.
-		apply spItrpConsInv with (1 := X).
-		clear T la' X.
-		intros.
-		pose (b0 := tr (AtCtx G _) (atCtxExtTEq b' xg a') (ax_a (atCtxExt xg (popCtx b' P)))).
-		assert (Ha : a + S b = S (a + b)).
-			rewrite <- plus_n_Sm.
-			reflexivity.
-		pose (b1 := tr (fun n=>AtCtx G n P0) Ha b0).
-		simpl in b1.
-		assert (Hb : a <= a + b).
-			apply le_plus_l.
-		pose proof (spItrpCons _ _ _ _ _ _ (atSubstGt xg b1 Hb (ctxProj b'))
-			(fun d g=>B d (existT _ (xc_f' (xgSubst xg (ctxProj b')) d (projT1 g)) (projT2 g)))
-			_ (IHla _ _ X)).
-		simpl in X0.
-		rewrite ctxProj_SubstGt in X0.
-		subst b1.
-		rewrite <- Ha in X0.
-		simpl in X0.
-		clear Ha Hb.
-		subst b0.
-		rewrite ctxProj_Ext in X0.
-		rewrite ctxProj_SubstEq in X0.
-		exact X0.
-
-		rewrite (proj1 (nat_compare_gt _ _) Ho).
-		destruct a.
-			exact (match lt_n_O _ Ho with end).
-		unfold lt in Ho.
-		intro.
-		simpl.
-		apply spItrpConsInv with (1 := X).
-		clear T la' X.
-		intros.
-		pose proof (le_S_n _ _ Ho).
-		pose proof (spItrpCons _ _ _ _ _ _ (atSubstGt xg a' H (ctxProj b'))
-			(fun d g=>B d (existT _ (xc_f' (xgSubst xg (ctxProj b')) d (projT1 g)) (projT2 g)))
-			_ (IHla _ _ X)).
-		simpl in X0.
-		rewrite ctxProj_SubstGt in X0.
-		exact X0.
+	destruct X.
+	pose proof (spItrpCons (atSubst xg b' a')
+		(fun g=>B (existT _ (xc_f' (xcSubst xg (ctxProj b')) (projT1 g)) (projT2 g)))
+		(IHla _ _ s)).
+	simpl in X.
+	rewrite <- ctxProj_Subst in X.
+	exact X.
 Qed.
 
 Lemma spItrpSubst_O G P F la b T la' (b':AtCtx G b P) : SimpParamItrp (extCtx G P) F la T la'->
@@ -499,26 +452,23 @@ Qed.
 
 Lemma tfItrpSubst F b GL P (b':AtCtx GL b P) : forall G l F' (xg:ExtCtx (extCtx GL P) l G),TreeFamItrp G F F'->
 TreeFamItrp (ctxSubst xg (ctxProj b')) (fSubst F l b) (elSubst xg F' (ctxProj b')).
-	(*induction F as [| p];[| destruct p as (f,la)];simpl;intros.
+	induction F as [| | A ? B ?];[| destruct p as (f,la) |];simpl;intros.
 
-	rewrite sfItrpNilInv with (1 := X).
-	apply sfItrpNil.
+	rewrite <- H.
+	reflexivity.
 
-	apply sfItrpConsInv with (1 := X).
-	clear F' X.
-	intros B ? ? F'.
-	pose (A d g := la' d g (tctxProj f' d)).
-	change (forall d,extCtx G A d->Type) in F'.
-	pose (F_ d g := forall p,F' d (existT _ g p)).
-	change (SimpParamItrp G B la (fun d g=>Type) la'->
-		SimpFamItrp D (extCtx G A) F F'->
-		SimpFamItrp D (ctxSubst xg (ctxProj b')) ((f,laSubstG la l b) :: fSubstG F (S l) b)
-			(elSubst xg F_ (ctxProj b'))).
-	intros Xp Xf.
-	apply sfItrpCons with (la' := elSubst xg la' (ctxProj b')) (2 := IHF _ _ _ (extSCtx xg _) Xf).
-	apply spItrpSubst with (1 := Xp) (xg := xg).
-Qed.*)
-Admitted.
+	destruct X.
+	pose proof (tfItrpEl (atSubst xg b' f') (spItrpSubst _ _ _ _ _ _ _ xg b' _ _ s)).
+	rewrite <- ctxProj_Subst in X.
+	exact X.
+
+	destruct X.
+	apply (tfItrpPi (A' := elSubst xg A' (ctxProj b'))
+	(B' := fun g=>B' (existT _ (xc_f' (xcSubst xg _) (projT1 g)) (projT2 g)))).
+		exact (IHF1 _ _ _ _ t).
+
+		exact (IHF2 _ _ _ (extSCtx xg A') t0).
+Qed.
 
 Lemma tfItrpSubst_O G P F b F' (b':AtCtx G b P) : TreeFamItrp (extCtx G P) F F'->
 TreeFamItrp G (fSubst F O b) (fun g=>F' (existT _ g (ctxProj b' g))).
