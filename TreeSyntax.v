@@ -2,6 +2,7 @@ Require Import List.
 Require Import Compare_dec.
 
 Require Import Utils.
+Require Import SimpSubst.
 Require Import SimpSyntax.
 
 Require Import Le Lt.
