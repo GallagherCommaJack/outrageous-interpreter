@@ -37,7 +37,6 @@ Definition typUv : Typ := typ typUvS.
 Definition typEl T : Typ := typ (typElS T).
 Definition typPi (A:Typ) (B:A->Typ) : Typ := typ (typPiS (typSc A) (fun a=>typSc (B a))).
 
-(*
 Definition IsTypPi (T:Typ) := match T with
 	typ _ (typPiS _ _ _ _) => True |
 	_ => False
@@ -55,7 +54,6 @@ Definition typCdm T : typDom T->Typ.
 		_ => fun _=>typUv
 	end).
 Defined.
-*)
 
 End TypCode.
 Import TypCode.
