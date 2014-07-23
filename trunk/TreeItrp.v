@@ -5,9 +5,6 @@ Require Import Context.
 Require Import SimpSyntax.
 Require Import TreeSyntax.
 
-Require Import Plus Minus.
-Require Import Compare_dec.
-
 (* Structured semantic types = type codes = universe construction *)
 
 Module TypCode <: CTXTYP.
@@ -155,8 +152,7 @@ clear P2 a2.
 intros.
 pose proof (IHla _ _ _ _ s X).
 clear IHla s X.
-(* Uh oh *)
-(*pose (PBla2 := existT (fun T:G->Typ,forall g,F g->T g) (fun g=>typPi (P1 g) (fun p=>B2 (existT _ g p))) la2).
+pose (PBla2 := existT (fun T:G->Typ,forall g,F g->T g) (fun g=>typPi (P1 g) (fun p=>B2 (existT _ g p))) la2).
 pose (fun g=>typDom (projT1 PBla2 g)).
 pose (fun g=>typCdm (projT1 PBla2 g)).
 pose (projT2 PBla2).
@@ -171,8 +167,7 @@ let a' := tr (AtCtx G a) H a1 in
 	(fun g=>typ (typSc (B1 (existT _ g (ctxProj a1 g))))) (fun g f=>la1 g f (ctxProj a1 g)) =
 	existT (fun T:G->Typ,forall g,F g->T g)
 	(fun g=>typCdm (projT1 PBla2 g) (ctxProj a' g)) (fun g f=>projT2 PBla2 g f (ctxProj a' g)))).
-Qed.*)
-Admitted.
+Qed.
 Implicit Arguments spItrpUniq [G F la T1 T2 la1 la2].
 
 Lemma tfItrpUniq F : forall G F1 F2,TreeFamItrp G F F1->TreeFamItrp G F F2->(F1 = F2).
@@ -231,153 +226,6 @@ Lemma tcItrpUniq G : forall G1 G2,TreeCtxItrp G G1->TreeCtxItrp G G2->(G1 = G2).
 	reflexivity.
 Qed.
 Implicit Arguments tcItrpUniq [G G1 G2].
-
-(* TODO: Factor out variable and inequality gook *)
-Require Import Le Lt.
-
-Lemma lt_ltdLo l i : (i < l)->ltd i l.
-	intro.
-	unfold ltd.
-	rewrite (proj1 (nat_compare_lt _ _) H).
-	exact I.
-Qed.
-Implicit Arguments lt_ltdLo [l i].
-
-Lemma lt_ltdHi n l i : ~(i < l)->ltd l (S n + i).
-	intro.
-	unfold ltd.
-	rewrite (proj1 (nat_compare_lt _ _)).
-		exact I.
-	simpl.
-	apply le_n_S.
-	rewrite <- plus_comm.
-	apply le_plus_trans.
-	exact (not_lt _ _ H).
-Qed.
-Implicit Arguments lt_ltdHi [l i].
-
-Definition atBump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n l i) T) : AtCtx (ctxBump P xg) (varBump (S n) l i) (elBump P xg T).
-	destruct (lt_dec i l) as [Ho | Ho].
-
-	apply (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) (eq_sym (varBumpLo _ _ _ Ho))).
-	exact (atBumpLo P xg (tr (fun v=>AtCtx G v T) (varBumpLo _ _ _ Ho) a) (lt_ltdLo Ho)).
-
-	apply (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) (eq_sym (varBumpHi _ _ _ Ho))).
-	exact (atBumpHi P xg (tr (fun v=>AtCtx G v T) (varBumpHi _ _ _ Ho) a) (lt_ltdHi n Ho)).
-Defined.
-Implicit Arguments atBump [GL n l G i T].
-
-Definition ctxProj_Bump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n l i) T) : elBump P xg (ctxProj a) = ctxProj (atBump P xg a).
-	unfold atBump.
-	destruct (lt_dec i l) as [Ho | Ho].
-
-	refine (match eq_sym (varBumpLo (S n) l i Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) p _)
-		with eq_refl => _ end).
-	simpl.
-	apply (tr _ (ctxProj_BumpLo P xg _ _)).
-	refine (match varBumpLo n l i Ho as p return
-		elBump P xg (ctxProj a) =
-		elBump P xg (ctxProj (tr (fun v=>AtCtx G v T) p a))
-	with eq_refl => _ end).
-	simpl.
-	reflexivity.
-
-	refine (match eq_sym (varBumpHi (S n) l i Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) p _)
-		with eq_refl => _ end).
-	simpl.
-	apply (tr _ (ctxProj_BumpHi P xg _ _)).
-	refine (match varBumpHi n l i Ho as p return
-		elBump P xg (ctxProj a) =
-		elBump P xg (ctxProj (tr (fun v=>AtCtx G v T) p a))
-	with eq_refl => _ end).
-	simpl.
-	reflexivity.
-Defined.
-Implicit Arguments ctxProj_Bump [GL n l G i T].
-
-Definition atSubst GL b P l G a T (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P) : forall a':AtCtx G a T,
-AtCtx (ctxSubst xg (ctxProj b')) (varSubst l b a) (elSubst xg T (ctxProj b')).
-	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
-
-	intro.
-	apply (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstLt _ _ _ Ho))).
-	exact (atSubstLt xg a' (lt_ltdLo Ho) (ctxProj b')).
-
-	intro.
-	apply (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstEq _ _ _ Ho))).
-	assert (a_ := tr (fun v=>AtCtx G v T) Ho a').
-	clear a Ho a'.
-	simpl in a_.
-	assert (b0 := tr (AtCtx G _) (atMBumpTEq b' xg a_) (xa_a (atMBump xg (popCtx b' P)))).
-	assert (Ha := eq_sym (plus_n_Sm l b)).
-	assert (b1 := tr (fun n=>AtCtx G n T) Ha b0).
-	simpl in b1.
-	exact (atSubstGt xg b1 (lt_ltdLo (le_n_S l _ (le_plus_l l b))) (ctxProj b')).
-
-	apply (tr (fun v=>_->AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstGt _ _ _ Ho))).
-	destruct a.
-		exact (match lt_n_O _ Ho with end).
-	intro a'.
-	simpl.
-	exact (atSubstGt xg a' (lt_ltdLo Ho) (ctxProj b')).
-Defined.
-Implicit Arguments atSubst [GL b P l G a T].
-
-Definition ctxProj_Subst GL b P l G a T (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P) : forall a':AtCtx G a T,
-elSubst xg (ctxProj a') (ctxProj b') = ctxProj (atSubst xg b' a').
-	unfold atSubst.
-	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
-
-	intro.
-	refine (match eq_sym (varSubstLt l b a Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _)
-		with eq_refl => _ end).
-	simpl.
-	apply ctxProj_SubstLt.
-
-	intro.
-	refine (match eq_sym (varSubstEq l b a Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _)
-		with eq_refl => _ end).
-	simpl.
-	set (a_ := tr (fun v=>AtCtx G v T) Ho a').
-	simpl in a_.
-	pose (b0 := tr (AtCtx G _) (atMBumpTEq b' xg a_) (xa_a (atMBump xg (popCtx b' P)))).
-	simpl in b0.
-	fold b0.
-	set (Ha := eq_sym (plus_n_Sm l b)).
-	set (b1 := tr (fun n=>AtCtx G n T) Ha b0).
-	simpl in b1.
-	apply (tr _ (ctxProj_SubstGt xg _ _ _)).
-	subst b1.
-	refine (match Ha as Ha
-		return _ = elSubst xg (ctxProj (tr (fun n=>AtCtx G n T) Ha b0)) _
-		with eq_refl => _ end).
-	simpl.
-	clear Ha.
-	subst b0.
-	apply (tr (fun X=>_ = elSubst xg X _) (eq_sym (ctxProj_MBump b' xg a_))).
-	apply (tr _ (ctxProj_SubstEq xg a_ _)).
-	subst a_.
-	refine (match Ho as Ho return
-		elSubst xg _ _ =
-		elSubst xg (ctxProj (tr _ Ho a')) _
-	with eq_refl => _ end).
-	simpl.
-	reflexivity.
-
-	refine (match eq_sym (varSubstGt l b a Ho) as p
-		return forall a',_ = ctxProj (tr (fun v=>_->AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _ a')
-		with eq_refl => _ end).
-	simpl.
-	destruct a.
-		exact (match lt_n_O _ Ho with end).
-	intro.
-	apply ctxProj_SubstGt.
-Defined.
-Implicit Arguments ctxProj_Subst [GL b P l G a T].
 
 Lemma spItrpBump G F n l la GL P (xg:ExtCtx GL l G) : forall T la',SimpParamItrp G F (laBump n l la) T la'->
 SimpParamItrp (ctxBump P xg) (elBump P xg F) (laBump (S n) l la) (elBump P xg T) (elBump P xg la').

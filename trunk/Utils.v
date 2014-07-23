@@ -51,6 +51,14 @@ Definition ltd_n_O n : ~ltd n O.
 Defined.
 Implicit Arguments ltd_n_O [n].
 
+Lemma lt_ltd l i : (i < l)->ltd i l.
+	intro.
+	unfold ltd.
+	rewrite (proj1 (nat_compare_lt _ _) H).
+	exact I.
+Qed.
+Implicit Arguments lt_ltd [l i].
+
 Fixpoint gtd_ltd a b : gtd a b = ltd b a := match a,b with
 	O,O => eq_refl False |
 	O,S _ => eq_refl False |
