@@ -85,10 +85,10 @@ Implicit Arguments spItrpNil [G].
 
 Inductive SPItrpCons (G:Ctx) (F:G->Typ) a (R:forall T:G->Typ,(forall g,F g->T g)->Type) :
 forall T:G->Typ,(forall g,F g->T g)->Type :=
-	spItrpCons P (a':AtCtx G a P) B la' :
-		R (fun g=>typPi (P g) (fun p=>B (existT P g p))) la'->
-		SPItrpCons G F a R (fun g=>B (existT P g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
-Implicit Arguments spItrpCons [G F a R P la'].
+	spItrpCons P (a':AtCtx G a P) B (BS:forall g p,TypS (B g p)) la' :
+		R (fun g=>typPi (P g) (fun p=>typ (BS g p))) la'->
+		SPItrpCons G F a R (fun g=>typ (BS g (ctxProj a' g))) (fun g f=>la' g f (ctxProj a' g)).
+Implicit Arguments spItrpCons [G F a R P B la'].
 
 Fixpoint SimpParamItrp G F la : forall T,_->Type := match la with
 	nil => SPItrpNil G F |
@@ -128,43 +128,84 @@ Fixpoint TreeCtxItrp G : Ctx->Type := match G with
 	F :: G => TCItrpCons (TreeCtxItrp G) F
 end.
 
+Definition sigTEqE A (P:A->Type) (s1 s2:sigT P) : (s1 = s2)->
+{p:projT1 s1 = projT1 s2 & tr P p (projT2 s1) = projT2 s2}.
+	intro.
+	pattern s2.
+	apply (tr _ H).
+	exists (eq_refl _).
+	simpl.
+	reflexivity.
+Defined.
+Implicit Arguments sigTEqE [A P s1 s2].
+
+(* Oops *)
+Axiom UIP : forall T (x:T) (p:x = x),eq_refl x = p.
+Implicit Arguments UIP [T x].
+
+Definition projT2Eq A (P:A->Type) a (p1 p2:P a) : (existT P a p1 = existT P a p2)->(p1 = p2).
+	intro.
+	destruct (sigTEqE H).
+	simpl in x,e.
+	revert e.
+	apply (tr (fun x=>tr P x p1 = p2->_) (UIP x)).
+	simpl.
+	exact (fun p=>p).
+Defined.
+Implicit Arguments projT2Eq [A P a p1 p2].
+
 Lemma spItrpUniq G F la : forall T1 T2 la1 la2,SimpParamItrp G F la T1 la1->SimpParamItrp G F la T2 la2->
 (existT (fun T:G->Typ=>forall g,F g->T g) T1 la1 = existT _ T2 la2).
+	set (Tla (T:G->Typ) := forall g,F g->T g).
 	induction la;simpl;intros.
 
 	destruct H.
 	destruct H0.
 	reflexivity.
 
-destruct X as (P1,a1,B1,la1).
-destruct X0 as (P2,a2,B2,la2).
-simpl in la1,la2.
-revert B2 la2 s0.
-apply (tr (fun xa=>forall B2 la2,
-	SimpParamItrp G F la (fun g=>typPi (xa_T xa g) (fun p=>B2 (existT (xa_T xa) g p))) la2->
-	(_ = existT (fun T:G->Typ,forall g,F g->T g)
-		(fun g=>B2 (existT _ g (ctxProj (xa_a xa) g))) (fun g f=>la2 g f (ctxProj (xa_a xa) g))))
-(atCtxUniq a1 a2)).
-simpl.
-clear P2 a2.
-intros.
-pose proof (IHla _ _ _ _ s X).
-clear IHla s X.
-pose (PBla2 := existT (fun T:G->Typ,forall g,F g->T g) (fun g=>typPi (P1 g) (fun p=>B2 (existT _ g p))) la2).
-pose (fun g=>typDom (projT1 PBla2 g)).
-pose (fun g=>typCdm (projT1 PBla2 g)).
-pose (projT2 PBla2).
-simpl in t,t0,t1.
-(*assert (forall g,typTp (projT1 PBla2 g) = typTp ((fun g=>typDom (projT1 PBla2 g)) g)).
-intro.
-simpl.*)
-Check (fun (PBla2:{T : G->Typ & forall g,F g->T g})
-	(H:(fun g=>typ (typSc (P1 g))) = (fun g=>typDom (projT1 PBla2 g)))=>
-let a' := tr (AtCtx G a) H a1 in
-(existT (fun T:G->Typ,forall g,F g->T g)
-	(fun g=>typ (typSc (B1 (existT _ g (ctxProj a1 g))))) (fun g f=>la1 g f (ctxProj a1 g)) =
-	existT (fun T:G->Typ,forall g,F g->T g)
-	(fun g=>typCdm (projT1 PBla2 g) (ctxProj a' g)) (fun g f=>projT2 PBla2 g f (ctxProj a' g)))).
+	destruct X as (P1,a1,B1,BS1,la1).
+	destruct X0 as (P2,a2,B2,BS2,la2).
+	simpl in la1,la2.
+	revert B2 BS2 la2 s0.
+	apply (tr (fun xa=>forall B2 (BS2:forall g p,TypS (B2 g p)) la2,
+		SimpParamItrp G F la (fun g=>typPi (xa_T xa g) (fun p=>typ (BS2 g p))) la2->
+		(_ = existT Tla (fun g=>typ (BS2 g (ctxProj (xa_a xa) g)))
+			(fun g f=>la2 g f (ctxProj (xa_a xa) g))))
+	(atCtxUniq a1 a2)).
+	simpl.
+	clear P2 a2.
+	intros.
+	pose proof (IHla _ _ _ _ s X).
+	clear IHla s X.
+	pose (PBla1 := existT Tla (fun g=>typPi (P1 g) (fun p=>typ (BS1 g p))) la1).
+	pose (PBla2 := existT Tla (fun g=>typPi (P1 g) (fun p=>typ (BS2 g p))) la2).
+	change (PBla1 = PBla2) in H.
+	pose (P (s:sigT Tla) g := typTp (typDom (projT1 s g))).
+	pose (BR (s:sigT Tla) g := typCdm (projT1 s g)).
+	change (forall s g,P s g->Typ) in (type of BR).
+	assert {p:P PBla1 = P PBla2 & tr (fun P=>forall g,P g->Typ) p (BR PBla1) = BR PBla2}.
+		rewrite <- H.
+		exists (eq_refl _).
+		simpl.
+		reflexivity.
+	destruct H0 as (PH,BRH).
+	rewrite <- (UIP PH) in BRH.
+	simpl in BRH.
+	clear PH.
+	subst P BR.
+	simpl in BRH.
+	revert la2 PBla2 H.
+	apply (tr (fun X=>forall la2,
+		let PBla2 := existT Tla (fun g=>typPi (P1 g) (fun p=>X g p)) la2 in
+		(PBla1 = PBla2)->
+		(_ = existT Tla (fun g=>X g (ctxProj a1 g)) (fun g f=>la2 g f (ctxProj a1 g))))
+	BRH).
+	unfold Tla at 1.
+	simpl typTp.
+	clear B2 BS2 BRH.
+	intros.
+	rewrite <- (projT2Eq H).
+	reflexivity.
 Qed.
 Implicit Arguments spItrpUniq [G F la T1 T2 la1 la2].
 
