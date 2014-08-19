@@ -157,7 +157,7 @@ exAtCtx a1 = exAtCtx a2.
 
 	change (PopCtx T' (AtCtx G n) T2) in a2.
 	destruct a2 as (T2,a2).
-	exact (tr (fun xa=>_ = exAtCtx (popCtx (xa_a xa) T')) (IHa1 _ a2) (eq_refl _)).
+	exact (tr (fun xa=>exAtCtx (popCtx a1 T') = exAtCtx (popCtx (xa_a xa) T')) (IHa1 _ a2) (eq_refl _)).
 Defined.
 Implicit Arguments atCtxUniq [G n T1 T2].
 
