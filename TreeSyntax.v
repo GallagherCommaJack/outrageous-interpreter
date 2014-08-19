@@ -7,6 +7,7 @@ Require Import SimpSyntax.
 
 Require Import Le Lt.
 Require Import Plus Minus.
+Require Import Min.
 
 (* Tree syntax for types, to do typing in one context *)
 Inductive treeFam : Set :=
@@ -478,7 +479,7 @@ Lemma tfGoodBump_unskip G n F : (n <= length G)->TreeFamGoodPG (skipn n G) F->Tr
 	replace n0 with (length (firstn n G));subst n0.
 		apply tfGoodBump_O with (1 := H0).
 	rewrite firstn_length.
-	apply MinMax.min_l with (1 := H).
+	apply min_l with (1 := H).
 Qed.
 
 Lemma tfGoodSubstNest GL GR F b : (b < length GL)->let X := fBump (S b) O (nth b GL Uv) in
