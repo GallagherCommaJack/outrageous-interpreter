@@ -8,7 +8,7 @@ Require Import TreeSyntax.
 
 (* Structured semantic types = type codes = universe construction *)
 
-Module TypCode <: CTXTYP.
+Module Import TypCode <: CTXTYP.
 
 Inductive TypS : Type->Type :=
 	typUvS : TypS Type |
@@ -57,10 +57,8 @@ Definition typCdm T : typDom T->Typ.
 Defined.
 
 End TypCode.
-Import TypCode.
 
-Module CodeContex := Contex TypCode.
-Import CodeContex.
+Module Import CodeContex := Contex TypCode.
 
 (* Interpretation relations *)
 

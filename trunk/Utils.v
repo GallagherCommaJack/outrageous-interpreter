@@ -4,14 +4,14 @@ Require Import Compare_dec.
 Require Import Le Lt.
 Require Import Plus Minus.
 
-Definition ap A B (f:A->B) (a1 a2:A) (p:a1 = a2) := match p in _ = a2 return f a1 = f a2 with eq_refl => eq_refl _ end.
+Definition ap A B (f:A->B) a1 a2 (p:a1 = a2) : f a1 = f a2 := match p with eq_refl => eq_refl _ end.
 Implicit Arguments ap [A B a1 a2].
 
-Definition tr A (B:A->Type) (a1 a2:A) (p:a1 = a2) := match p in _ = a2 return B a1->B a2 with eq_refl => fun b=>b end.
-Implicit Arguments tr [A a1 a2].
-
-Definition cast (T1 T2:Type) (p:T1 = T2) := match p in _ = T2 return T1->T2 with eq_refl => fun x=>x end.
+Definition cast (T1 T2:Type) (p:T1 = T2) : T1->T2 := match p with eq_refl => fun x=>x end.
 Implicit Arguments cast [T1 T2].
+
+Definition tr A (B:A->Type) a1 a2 (p:a1 = a2) : B a1->B a2 := match p with eq_refl => fun b=>b end.
+Implicit Arguments tr [A a1 a2].
 
 Definition Sinj n m : forall e:S n = S m,n = m := @ap _ _ pred _ _.
 Implicit Arguments Sinj [n m].
@@ -58,6 +58,14 @@ Lemma lt_ltd l i : (i < l)->ltd i l.
 	exact I.
 Qed.
 Implicit Arguments lt_ltd [l i].
+
+Lemma not_lt_ltd l i : ~(i < l)->ltd l (S i).
+	intro.
+	apply lt_ltd.
+	apply le_n_S.
+	exact (not_lt _ _ H).
+Qed.
+Implicit Arguments not_lt_ltd [l i].
 
 Fixpoint gtd_ltd a b : gtd a b = ltd b a := match a,b with
 	O,O => eq_refl False |
