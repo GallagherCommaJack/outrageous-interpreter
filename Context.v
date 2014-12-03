@@ -1,16 +1,13 @@
 Require Import Utils.
-Require Import SimpSubst.
 
-Require Import Le Lt.
-Require Import Plus.
-Require Import Compare_dec.
+Set Implicit Arguments.
 
 Module Type CTXTYP.
 
 Parameter Typ : Type.
 
-Parameter typTp : Typ->Type.
-Coercion typTp : Typ >-> Sortclass.
+Parameter TypTp : Typ->Type.
+Coercion TypTp : Typ >-> Sortclass.
 
 End CTXTYP.
 
@@ -20,31 +17,29 @@ Module Contex (Import CtxTyp : CTXTYP).
 
 Inductive CtxS : Type->Type :=
 	empCtxS : CtxS unit |
-	extCtxS G : CtxS G->forall T:G->Typ,CtxS (sigT T).
-Implicit Arguments extCtxS [G].
+	extCtxS G (s:CtxS G) (T:G->Typ) : CtxS (sigT T).
 
 Inductive Ctx : Type := ctx G (s:CtxS G).
-Implicit Arguments ctx [G].
 
-Definition ctxTp G := match G with ctx G _ => G end.
-Coercion ctxTp : Ctx >-> Sortclass.
+Definition CtxTp G := match G with ctx G _ => G end.
+Coercion CtxTp : Ctx >-> Sortclass.
 
 Definition ctxSc (G:Ctx) : CtxS G := match G with ctx _ s => s end.
 
-Definition empCtx := ctx empCtxS.
-Definition extCtx G T := ctx (extCtxS (ctxSc G) T).
+Definition EmpCtx := ctx empCtxS.
+Definition ExtCtx G T := ctx (extCtxS (ctxSc G) T).
 
 Definition IsExtCtx G := match G with
 	ctx _ empCtxS => False |
 	ctx _ (extCtxS _ _ _) => True
 end.
 
-Definition ctxInit G := match G with
-	ctx _ empCtxS => empCtx |
+Definition CtxInit G := match G with
+	ctx _ empCtxS => EmpCtx |
 	ctx _ (extCtxS _ s _) => ctx s
 end.
 
-Definition ctxTop G : forall ne:IsExtCtx G,ctxInit G->Typ.
+Definition CtxTop G : forall ne:IsExtCtx G,CtxInit G->Typ.
 	destruct G.
 	destruct s;simpl;intro.
 
@@ -52,17 +47,16 @@ Definition ctxTop G : forall ne:IsExtCtx G,ctxInit G->Typ.
 
 	exact T.
 Defined.
-Implicit Arguments ctxTop [G].
+Arguments CtxTop [G] ne g.
 
 Fixpoint ctxLenS G (s:CtxS G) := match s with
 	empCtxS => O |
-	extCtxS _ s _ => S (ctxLenS _ s)
+	extCtxS _ s _ => S (ctxLenS s)
 end.
-Implicit Arguments ctxLenS [G].
 
 Definition ctxLen G := ctxLenS (ctxSc G).
 
-Definition extCtxUnfold G : forall ne:IsExtCtx G,G = extCtx (ctxInit G) (ctxTop ne).
+Definition extCtxUnfold G : forall ne:IsExtCtx G,G = ExtCtx (CtxInit G) (CtxTop ne).
 	destruct G.
 	destruct s;simpl;intro.
 
@@ -70,495 +64,223 @@ Definition extCtxUnfold G : forall ne:IsExtCtx G,G = extCtx (ctxInit G) (ctxTop 
 
 	reflexivity.
 Defined.
-Implicit Arguments extCtxUnfold [G].
+Arguments extCtxUnfold [G] ne.
 
-Definition extCtxInj G1 G2 : forall T1 T2 (e:extCtx G1 T1 = extCtx G2 T2),
+Definition extCtxInj G1 G2 : forall T1 T2 (e:ExtCtx G1 T1 = ExtCtx G2 T2),
 existT (fun G:Ctx=>G->Typ) G1 T1 = existT _ G2 T2.
 	destruct G1 as (G1,s1).
 	destruct G2 as (G2,s2).
 	simpl.
 	intros.
 	generalize I.
-	apply (tr (fun Gx=>forall ne:IsExtCtx Gx,_ = existT (fun G:Ctx=>G->Typ) _ (ctxTop ne)) e).
+	apply (tr (fun Gx=>forall ne:IsExtCtx Gx,_ = existT (fun G:Ctx=>G->Typ) _ (CtxTop ne)) e).
 	simpl.
 	intro.
 	reflexivity.
 Defined.
-Implicit Arguments extCtxInj [G1 G2 T1 T2].
 
 (* Strongly typed de Bruijn indexes *)
 
 (*
 Inductive AtCtx : forall G:Ctx,nat->(G->Typ)->Type :=
-	topCtx G T : AtCtx (extCtx G T) O (fun g=>T (projT1 g)) |
-	popCtx G n T : AtCtx G n T->forall T',AtCtx (extCtx G T') (S n) (fun g=>T (projT1 g)).
+	topCtx G T : AtCtx (ExtCtx G T) O (fun g=>T (projT1 g)) |
+	popCtx G i T : AtCtx G i T->forall T',AtCtx (ExtCtx G T') (S i) (fun g=>T (projT1 g)).
 *)
 
 Inductive PopCtx G (T':G->Typ) P : (sigT T'->Typ)->Type :=
-	mkPopCtx T : P T->PopCtx G T' P (fun g=>T (projT1 g)).
-Implicit Arguments PopCtx [G].
-Implicit Arguments mkPopCtx [G].
+	mkPopCtx T : P T->PopCtx T' P (fun g=>T (projT1 g)).
 
-Fixpoint AtCtxS G (s:CtxS G) n := match s in CtxS G return (G->Typ)->Type with
+Fixpoint AtCtxS G (s:CtxS G) i : (G->Typ)->Type := match s with
 	empCtxS => fun T=>Empty_set |
-	extCtxS _ s T' => match n with
+	extCtxS _ s T' => match i with
 		O => eq (fun g=>T' (projT1 g)) |
-		S n => PopCtx T' (AtCtxS _ s n)
+		S i => PopCtx T' (AtCtxS s i)
 	end
 end.
-Implicit Arguments AtCtxS [G].
 
 Definition AtCtx G := AtCtxS (ctxSc G).
 
-Definition topCtx G T : AtCtx (extCtx G T) O (fun g=>T (projT1 g)) := eq_refl _.
+Definition topCtx G T : AtCtx (ExtCtx G T) O (fun g=>T (projT1 g)) := eq_refl.
 
-Definition popCtx G n T (a:AtCtx G n T) T' : AtCtx (extCtx G T') (S n) (fun g=>T (projT1 g)) := mkPopCtx _ _ _ a.
-Implicit Arguments popCtx [G n T].
+Definition popCtx G i T (a:AtCtx G i T) T' : AtCtx (ExtCtx G T') (S i) (fun g=>T (projT1 g)) := mkPopCtx _ _ _ a.
+Arguments popCtx [G i T] a T'.
 
-Definition atCtxIndS (P:forall G n T,AtCtx G n T->Type)
+Definition atCtxIndS (P:forall G i T,AtCtx G i T->Type)
 	(top:forall G T,P _ _ _ (topCtx G T))
-	(pop:forall G n T (a:AtCtx G n T) (IHa:P _ _ _ a) T',P _ _ _ (popCtx a T'))
-: forall G (s:CtxS G) n T (a:AtCtx (ctx s) n T),P _ _ _ a.
-	refine (fix atCtxIndS G s n := match s in CtxS G return forall T (a:AtCtx (ctx s) n T),P _ _ _ a with
+	(pop:forall G i T (a:AtCtx G i T) (IHa:P _ _ _ a) T',P _ _ _ (popCtx a T'))
+: forall G (s:CtxS G) i T (a:AtCtx (ctx s) i T),P _ _ _ a.
+	refine (fix atCtxIndS G s i := match s in CtxS G return forall T (a:AtCtx (ctx s) i T),P _ _ _ a with
 		empCtxS => _ |
-		extCtxS _ s _ => _
+		extCtxS _ s0 _ => _
 	end);clear G s;simpl;intro.
 
 	intro.
 	destruct a.
 
-	destruct n;unfold AtCtx;simpl;intro;destruct a.
+	destruct i;unfold AtCtx;simpl;intro;destruct a.
 		exact (top (ctx s0) _).
 
 		exact (pop _ _ _ _ (atCtxIndS _ _ _ _ _) _).
 Defined.
 
-Definition AtCtx_rect (P:forall G n T,AtCtx G n T->Type)
+Definition AtCtx_rect (P:forall G i T,AtCtx G i T->Type)
 	(top:forall G T,P _ _ _ (topCtx G T))
-	(pop:forall G n T (a:AtCtx G n T) (IHa:P _ _ _ a) T',P _ _ _ (popCtx a T'))
-G := match G return forall n T (a:AtCtx G n T),P _ _ _ a with ctx _ s => atCtxIndS P top pop _ s end.
-Implicit Arguments AtCtx_rect [G n T].
+	(pop:forall G i T (a:AtCtx G i T) (IHa:P _ _ _ a) T',P _ _ _ (popCtx a T'))
+G : forall i T (a:AtCtx G i T),P _ _ _ a := match G with ctx _ s => atCtxIndS P top pop s end.
 
-Inductive ExAtCtx G n : Type := exAtCtx T (a:AtCtx G n T).
-Implicit Arguments exAtCtx [G n T].
+Inductive ExAtCtx G i : Type := exAtCtx T (a:AtCtx G i T).
+Arguments exAtCtx [G i T] a.
 
-Definition xa_T G n (xa:ExAtCtx G n) := match xa with exAtCtx T _ => T end.
-Implicit Arguments xa_T [G n].
+Definition xa_T G i (xa:ExAtCtx G i) := match xa with exAtCtx T _ => T end.
+Definition xa_a G i (xa:ExAtCtx G i) : AtCtx G i (xa_T xa) := match xa with exAtCtx _ a => a end.
 
-Definition xa_a G n (xa:ExAtCtx G n) : AtCtx G n (xa_T xa) := match xa with exAtCtx _ a => a end.
-Implicit Arguments xa_a [G n].
-
-Definition atCtxUniq G n T1 (a1:AtCtx G n T1) : forall T2 (a2:AtCtx G n T2),
+Definition atCtxUniq G i T1 (a1:AtCtx G i T1) : forall T2 (a2:AtCtx G i T2),
 exAtCtx a1 = exAtCtx a2.
 	induction a1 as [| ? ? T1] using AtCtx_rect;intros.
 
 	destruct a2.
 	reflexivity.
 
-	change (PopCtx T' (AtCtx G n) T2) in a2.
+	change (PopCtx T' (AtCtx G i) T2) in a2.
 	destruct a2 as (T2,a2).
-	exact (tr (fun xa=>exAtCtx (popCtx a1 T') = exAtCtx (popCtx (xa_a xa) T')) (IHa1 _ a2) (eq_refl _)).
+	exact (tr (fun xa=>exAtCtx (popCtx a1 T') = exAtCtx (popCtx (xa_a xa) T')) (IHa1 _ a2) eq_refl).
 Defined.
-Implicit Arguments atCtxUniq [G n T1 T2].
+Arguments atCtxUniq [G i T1] a1 [T2] a2.
 
-Definition ctxProj G n T (a:AtCtx G n T) : forall g,T g.
+Definition envProj G i T (a:AtCtx G i T) : forall g,T g.
 	induction a using AtCtx_rect.
 
 	exact (@projT2 _ _).
 
 	exact (fun g=>IHa (projT1 g)).
 Defined.
-Implicit Arguments ctxProj [G n T].
+Arguments envProj [G i T] a g.
 
-Remark ctxProj_top G T : ctxProj (topCtx G T) = @projT2 _ _.
+Remark envProj_top G T : envProj (topCtx G T) = @projT2 _ _.
 	reflexivity.
 Qed.
 
-Definition ctxProj_pop G n := match G
-return forall T (a:AtCtx G n T) T',(fun g=>ctxProj a (projT1 g)) = ctxProj (popCtx a T')
-	with ctx _ _ => fun _ _ _=>eq_refl _ end.
-Implicit Arguments ctxProj_pop [G n T].
-
-Definition atCtxEta G n : forall T (a:AtCtx G n T),AtCtx G n (fun g=>T g).
+Lemma envProj_pop G i : forall T (a:AtCtx G i T) T',(fun g=>envProj a (projT1 g)) = envProj (popCtx a T').
 	destruct G.
-	unfold AtCtx.
-	simpl.
-	intro.
-	destruct s as [| ? ? T'].
+	simpl CtxTp.
+	intros.
+	reflexivity.
+Qed.
+Arguments envProj_pop [G i T] a T'.
 
-	simpl.
-	exact (fun x=>x).
+(* Telescopes (Iterated context extension) *)
 
-	destruct n;simpl;intro;destruct a.
-		reflexivity.
+Inductive TeleS GL : nat->Ctx->Type :=
+	empTeleS : TeleS GL O GL |
+	extTeleS n G (xg:TeleS GL n G) T : TeleS GL (S n) (ExtCtx G T).
 
-		exact (mkPopCtx _ _ _ a).
-Defined.
-Implicit Arguments atCtxEta [G n T].
-
-Definition ctxProj_Eta G n : forall T (a:AtCtx G n T),(fun g=>ctxProj a g) = ctxProj (atCtxEta a).
-	destruct G.
-	unfold AtCtx.
-	simpl ctxSc.
-	simpl ctxTp.
-	intro.
-	destruct s as [| ? ? T'].
-
-	simpl AtCtxS.
-	intro.
-	destruct a.
-
-	destruct n;simpl AtCtxS;intro;destruct a;reflexivity.
-Defined.
-Implicit Arguments ctxProj_Eta [G n T].
-
-(* Iterated context extension *)
-
-Inductive ExtCtx GL : nat->Ctx->Type :=
-	extOCtx : ExtCtx GL O GL |
-	extSCtx n G : ExtCtx GL n G->forall T,ExtCtx GL (S n) (extCtx G T).
-Implicit Arguments extSCtx [GL n G].
-
-Definition extSCtxInv GL n G T (xg:ExtCtx GL (S n) (extCtx G T)) (P:forall n G T,ExtCtx GL n (extCtx G T)->Type)
-	(xgS:forall xg:ExtCtx GL n G,P _ _ _ (extSCtx xg T))
+Definition extTeleSInv GL n G T (xg:TeleS GL (S n) (ExtCtx G T)) (P:forall n G T,TeleS GL n (ExtCtx G T)->Type)
+	(ext:forall xg:TeleS GL n G,P _ _ _ (extTeleS xg T))
 : P _ _ _ xg.
-	pose (P' n Gx (xg:ExtCtx GL n Gx) := forall ne:IsExtCtx Gx,
-		P _ _ _ (tr (ExtCtx GL n) (extCtxUnfold ne) xg)).
-	assert (Peq := match G as G return forall T xg,P (S n) G T xg = P _ (ctx (ctxSc G)) _ xg
-		with ctx _ _ => fun _ _=>eq_refl _ end T).
+	pose (P' n Gx (xg:TeleS GL n Gx) := forall ne:IsExtCtx Gx,
+		P _ _ _ (tr (TeleS GL n) (extCtxUnfold ne) xg)).
+	assert (Peq := match G return forall T xg,P (S n) G T xg = P _ (ctx (ctxSc G)) _ xg
+		with ctx _ _ => fun _ _=>eq_refl end T).
 	apply (tr (fun C=>C) (eq_sym (Peq _))).
 	generalize I.
-	refine (match xg as xg in ExtCtx _ Sn Gx return (Sn = S n)->(extCtx G T = Gx)->P' _ _ xg with
-		extOCtx => fun e=>match O_S _ e with end |
-		extSCtx _ _ xg0 _ => fun Hn HG=>_
-	end (eq_refl _) (eq_refl _)).
+	refine (match xg in TeleS _ Sn Gx return (Sn = S n)->(ExtCtx G T = Gx)->P' _ _ xg with
+		empTeleS => fun e=>match O_S _ e with end |
+		extTeleS _ _ xg0 _ => fun Hn HG=>_
+	end eq_refl eq_refl).
 	revert xg0.
 	apply (tr (fun _=>_) (eq_sym (Sinj Hn))).
-	apply (tr (fun GT=>forall xg,P' _ _ (extSCtx xg (projT2 GT))) (extCtxInj HG)).
+	apply (tr (fun GT=>forall xg,P' _ _ (extTeleS xg (projT2 GT))) (extCtxInj HG)).
 	simpl.
 	intros ? ?.
 	simpl.
-	exact (tr (fun C=>C) (Peq _) (xgS _)).
+	exact (tr (fun C=>C) (Peq _) (ext _)).
 Defined.
-Implicit Arguments extSCtxInv [GL n G T].
 
-Definition extSCtxInvEq GL n G P := match G
-return forall T (xg:ExtCtx GL n G) xgS,xgS xg = extSCtxInv (extSCtx xg T) P xgS
-	with ctx _ _ => fun _ _ _=>eq_refl _ end.
-Implicit Arguments extSCtxInvEq [GL n G T].
+Lemma extTeleSInvEq GL n G P : forall T (xg:TeleS GL n G) ext,ext xg = extTeleSInv (extTeleS xg T) P ext.
+	destruct G.
+	simpl CtxTp.
+	intros.
+	exact (eq_refl (ext xg)).
+Qed.
 
-Fixpoint unExt GL n G (xg:ExtCtx GL n G) : G->GL := match xg with
-	extOCtx => fun g=>g |
-	extSCtx _ _ xg _ => fun g=>unExt _ _ _ xg (projT1 g)
+Fixpoint unExt GL n G (xg:TeleS GL n G) : G->GL := match xg with
+	empTeleS => fun g=>g |
+	extTeleS _ _ xg _ => fun g=>unExt xg (projT1 g)
 end.
-Implicit Arguments unExt [GL n G].
 
-Definition extAtCtxInd GL P (C:forall n G P',ExtCtx (extCtx GL P) n G->AtCtx G n P'->Type)
-	(xgO:C _ _ _ (extOCtx _) (topCtx GL P))
-	(xgS:forall n G P' xg (a:AtCtx G n P') T,C _ _ _ xg a->C _ _ _ (extSCtx xg T) (popCtx a T))
-n G (xg:ExtCtx (extCtx GL P) n G) : forall P' (a:AtCtx G n P'),C _ _ _ xg a.
-	induction xg;unfold AtCtx;simpl;intros;destruct a.
+Fixpoint atUnExt GL n G i T (xg:TeleS GL n G) (a:AtCtx GL i T) : AtCtx G (n + i) (fun g=>T (unExt xg g)) := match xg with
+	empTeleS => a |
+	extTeleS _ _ xg T' => popCtx (atUnExt i T xg a) T'
+end.
+Arguments atUnExt [GL n G i T] xg a.
 
-	exact xgO.
+Lemma envProj_UnExt GL n G i T (xg:TeleS GL n G) (a:AtCtx GL i T) : (fun g=>envProj a (unExt xg g)) = envProj (atUnExt xg a).
+	induction xg as [| ? ? ? ? T'].
 
-	exact (xgS _ _ _ _ _ _ (IHxg _ _)).
-Defined.
-Implicit Arguments extAtCtxInd [GL P n G P'].
+	exact (eq_refl (envProj a)).
 
-Inductive ExtCtxComp GL' n G : Type := mkExtCtxComp G' (xg':ExtCtx GL' n G') (f':G'->G).
-Implicit Arguments mkExtCtxComp [GL' n G G'].
+	simpl atUnExt.
+	apply (tr (fun x=>_ = x) (envProj_pop (atUnExt xg a) T')).
+	apply (tr (fun x=>_ = fun g=>x (projT1 g)) IHxg).
+	reflexivity.
+Qed.
+Arguments envProj_UnExt [GL n G i T] xg a.
 
-Definition xc_G' GL' n G (xc:ExtCtxComp GL' n G) := match xc with mkExtCtxComp G' _ _ => G' end.
-Implicit Arguments xc_G' [GL' n G].
+(* Telescope Computation *)
 
-Definition xc_xg' GL' n G (xc:ExtCtxComp GL' n G) : ExtCtx GL' n (xc_G' xc) := match xc with mkExtCtxComp _ xg' _ => xg' end.
-Implicit Arguments xc_xg' [GL' n G].
+Inductive TeleComp GL' n G : Type := mkTeleComp G' (xg':TeleS GL' n G') (f':G'->G).
 
-Definition xc_f' GL' n G (xc:ExtCtxComp GL' n G) : xc_G' xc->G := match xc with mkExtCtxComp _ _ f' => f' end.
-Implicit Arguments xc_f' [GL' n G].
+Definition xc_G' GL' n G (xc:TeleComp GL' n G) := match xc with mkTeleComp G' _ _ => G' end.
+Definition xc_xg' GL' n G (xc:TeleComp GL' n G) : TeleS GL' n (xc_G' xc) := match xc with mkTeleComp _ xg' _ => xg' end.
+Definition xc_f' GL' n G (xc:TeleComp GL' n G) : xc_G' xc->G := match xc with mkTeleComp _ _ f' => f' end.
 
-Definition extCtxComp GL n G (xg:ExtCtx GL n G) (GL':Ctx) (f:GL'->GL) : ExtCtxComp GL' n G.
+Definition teleComp GL n G (xg:TeleS GL n G) (GL':Ctx) (f:GL'->GL) : TeleComp GL' n G.
 	induction xg.
 
-	exact (mkExtCtxComp (extOCtx _) f).
+	exact (mkTeleComp (empTeleS _) f).
 
-	refine (mkExtCtxComp (extSCtx (xc_xg' IHxg) _)
+	refine (mkTeleComp (extTeleS (xc_xg' IHxg) _)
 		(fun (g:sigT (fun g=>T (xc_f' IHxg g)))=>existT _ (xc_f' IHxg (projT1 g)) _)).
 	exact (projT2 g).
 Defined.
-Implicit Arguments extCtxComp [GL n G].
 
 (* Bump *)
 
-Definition xcBump GL P l G (xg:ExtCtx GL l G) := extCtxComp xg (extCtx GL P) (@projT1 _ _).
-Implicit Arguments xcBump [GL l G].
+Definition xcBump GL n GL' (X:TeleS GL n GL') l G (xg:TeleS GL l G) := teleComp xg GL' (unExt X).
 
-Definition ctxBump GL P l G (xg:ExtCtx GL l G) := xc_G' (xcBump P xg).
-Implicit Arguments ctxBump [GL l G].
+Definition CtxBump GL n GL' (X:TeleS GL n GL') l G (xg:TeleS GL l G) := xc_G' (xcBump X xg).
 
-Definition xgBump GL P l G (xg:ExtCtx GL l G) : ExtCtx _ l (ctxBump P xg) := xc_xg' (xcBump P xg).
-Implicit Arguments xgBump [GL l G].
+Definition elBump GL n GL' (X:TeleS GL n GL') l G (xg:TeleS GL l G) T (t:forall g,T g) (g:CtxBump X xg) :=
+	t (xc_f' (xcBump X xg) g).
+Arguments elBump [GL n GL'] X [l G] xg [T] t g.
 
-Definition elBump GL P l G (xg:ExtCtx GL l G) T (t:forall g,T g) (g:ctxBump P xg) :=
-	t (xc_f' (xcBump P xg) g).
-Implicit Arguments elBump [GL l G T].
-
-Definition atBumpLo GL P l G n T (xg:ExtCtx GL l G) (a:AtCtx G n T) (Ho:ltd n l) : AtCtx (ctxBump P xg) n (elBump P xg T).
+Definition atBumpLo GL n GL' l G i T (X:TeleS GL n GL') (xg:TeleS GL l G) (a:AtCtx G i T) (Ho:ltd i l) : AtCtx (CtxBump X xg) i (elBump X xg T).
 	revert l Ho xg.
 	induction a using AtCtx_rect;intro;(destruct l;intro;[exact (match Ho with end) |]);simpl;intro.
 
-	apply (extSCtxInv xg).
+	apply (extTeleSInv xg).
 	clear xg.
 	intro.
-	reflexivity.
-
-	revert T a IHa.
-	apply (extSCtxInv xg).
-	clear xg.
-	intros.
-	change (AtCtx (extCtx (ctxBump P xg) (elBump P xg T')) (S n) (fun g=>elBump P xg T (projT1 g))).
-	apply popCtx.
-	exact (IHa _ Ho xg).
-Defined.
-Implicit Arguments atBumpLo [GL l G n T].
-
-Definition atBumpHi GL P l G n T (xg:ExtCtx GL l G) (a:AtCtx G n T) (Ho:ltd l (S n)) : AtCtx (ctxBump P xg) (S n) (elBump P xg T).
-	revert n Ho T a.
-	induction xg as [| l ? ? ? T'].
-
-	intros.
-	unfold ctxBump.
-	simpl.
-	apply (popCtx a).
-
-	intro.
-	destruct n.
-		intro.
-		exact (match ltd_n_O Ho with end).
-	intros.
-	change (PopCtx T' (AtCtx G n) T) in a.
-	destruct a.
-	change (AtCtx (extCtx (ctxBump P xg) (elBump P xg T')) (S (S n)) (fun g=>elBump P xg T (projT1 g))).
-	apply popCtx.
-	exact (IHxg _ Ho _ a).
-Defined.
-Implicit Arguments atBumpHi [GL l G n T].
-
-Definition atBump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n l i) T) : AtCtx (ctxBump P xg) (varBump (S n) l i) (elBump P xg T).
-	destruct (lt_dec i l) as [Ho | Ho].
-
-	apply (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) (eq_sym (varBumpLo _ _ _ Ho))).
-	exact (atBumpLo P xg (tr (fun v=>AtCtx G v T) (varBumpLo _ _ _ Ho) a) (lt_ltd Ho)).
-
-	apply (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) (eq_sym (varBumpHi _ _ _ Ho))).
-	exact (atBumpHi P xg (tr (fun v=>AtCtx G v T) (varBumpHi _ _ _ Ho) a) (lt_ltdHi n Ho)).
-Defined.
-Implicit Arguments atBump [GL n l G i T].
-
-Definition ctxProj_BumpLo GL P l G n T (xg:ExtCtx GL l G) (a:AtCtx G n T) (Ho:ltd n l) :
-elBump P xg (ctxProj a) = ctxProj (atBumpLo P xg a Ho).
-	revert l Ho xg.
-	induction a using AtCtx_rect;intro;(destruct l;intro;[exact (match Ho with end) |]);intro.
-
-	revert Ho.
-	apply (extSCtxInv xg).
-	clear xg.
-	revert T.
-	destruct G.
-	simpl.
-	intros.
-	reflexivity.
-
-	revert T a IHa Ho.
-	apply (extSCtxInv xg).
-	clear xg.
-	revert T'.
-	destruct G.
-	simpl ctxTp.
-	intros.
-	change (elBump P (extSCtx xg T') (ctxProj (popCtx a T')) =
-		ctxProj (popCtx (atBumpLo P xg a Ho) (elBump P xg T'))).
-	apply (tr (fun X=>_ = X) (ctxProj_pop (atBumpLo P xg a Ho) (elBump P xg T'))).
-	apply (tr (fun X=>_ = fun g=>X (projT1 g)) (IHa _ Ho xg)).
-	reflexivity.
-Defined.
-Implicit Arguments ctxProj_BumpLo [GL l G n T].
-
-Definition ctxProj_BumpHi GL P l G n T (xg:ExtCtx GL l G) (a:AtCtx G n T) (Ho:ltd l (S n)) :
-elBump P xg (ctxProj a) = ctxProj (atBumpHi P xg a Ho).
-	revert n Ho T a.
-	induction xg as [| l ? ? ? T'].
-
-	intros ? ?.
-	revert P.
-	destruct GL as (GL,?).
-	simpl ctxTp.
-	intros.
-	reflexivity.
-
-	intro.
-	destruct n.
-		intro.
-		exact (match ltd_n_O Ho with end).
-	intros.
-	change (PopCtx T' (AtCtx G n) T) in a.
-	destruct a.
-	change (elBump P (extSCtx xg T') (ctxProj (popCtx a T')) =
-		ctxProj (popCtx (atBumpHi P xg a Ho) (elBump P xg T'))).
-	apply (tr (fun X=>elBump P (extSCtx xg T') X = _) (ctxProj_pop a T')).
-	apply (tr (fun X=>_ = X) (ctxProj_pop (atBumpHi P xg a Ho) (elBump P xg T'))).
-	apply (tr (fun X=>_ = fun g=>X (projT1 g)) (IHxg _ Ho _ a)).
-	reflexivity.
-Defined.
-Implicit Arguments ctxProj_BumpHi [GL l G n T].
-
-Definition ctxProj_Bump GL n P l G i T (xg:ExtCtx GL l G) (a:AtCtx G (varBump n l i) T) : elBump P xg (ctxProj a) = ctxProj (atBump P xg a).
-	unfold atBump.
-	destruct (lt_dec i l) as [Ho | Ho].
-
-	refine (match eq_sym (varBumpLo (S n) l i Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) p _)
-		with eq_refl => _ end).
-	simpl.
-	apply (tr _ (ctxProj_BumpLo P xg _ _)).
-	refine (match varBumpLo n l i Ho as p return
-		elBump P xg (ctxProj a) =
-		elBump P xg (ctxProj (tr (fun v=>AtCtx G v T) p a))
-	with eq_refl => _ end).
-	simpl.
-	reflexivity.
-
-	refine (match eq_sym (varBumpHi (S n) l i Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxBump P xg) v (elBump P xg T)) p _)
-		with eq_refl => _ end).
-	simpl.
-	apply (tr _ (ctxProj_BumpHi P xg _ _)).
-	refine (match varBumpHi n l i Ho as p return
-		elBump P xg (ctxProj a) =
-		elBump P xg (ctxProj (tr (fun v=>AtCtx G v T) p a))
-	with eq_refl => _ end).
-	simpl.
-	reflexivity.
-Defined.
-Implicit Arguments ctxProj_Bump [GL n l G i T].
-
-(* Subst *)
-
-Definition xcSubst GL P l G (xg:ExtCtx (extCtx GL P) l G) (p:forall g,P g) :=
-	extCtxComp xg GL (fun g=>existT P g (p g)).
-Implicit Arguments xcSubst [GL P l G].
-
-Definition ctxSubst GL P l G (xg:ExtCtx (extCtx GL P) l G) p := xc_G' (xcSubst xg p).
-Implicit Arguments ctxSubst [GL P l G].
-
-Definition xgSubst GL P l G (xg:ExtCtx (extCtx GL P) l G) p : ExtCtx GL l (ctxSubst xg p) :=
-	xc_xg' (xcSubst xg p).
-Implicit Arguments xgSubst [GL P l G].
-
-Definition elSubst GL P l G (xg:ExtCtx (extCtx GL P) l G) T (t:forall g,T g) p
-	(g:ctxSubst xg p) := t (xc_f' (xcSubst xg p) g).
-Implicit Arguments elSubst [GL P l G T].
-
-Definition atSubstLt GL P l G n T (xg:ExtCtx (extCtx GL P) l G) (a:AtCtx G n T) (Ho:ltd n l) p :
-AtCtx (ctxSubst xg p) n (elSubst xg T p).
-	revert l Ho xg.
-	induction a using AtCtx_rect;intro;(destruct l;intro;[exact (match Ho with end) |]);intro.
-
-	apply (extSCtxInv xg).
-	clear xg.
-	intro.
-	unfold ctxSubst.
-	simpl.
+	change (AtCtx (ExtCtx (CtxBump X xg) (elBump X xg T)) O (fun g=>elBump X xg T (projT1 g))).
 	apply topCtx.
 
 	revert T a IHa.
-	apply (extSCtxInv xg).
+	apply (extTeleSInv xg).
 	clear xg.
 	intros.
-	change (AtCtx (extCtx (ctxSubst xg p) (elSubst xg T' p)) (S n) (fun g=>elSubst xg T p (projT1 g))).
+	change (AtCtx (ExtCtx (CtxBump X xg) (elBump X xg T')) (S i) (fun g=>elBump X xg T (projT1 g))).
 	apply popCtx.
 	exact (IHa _ Ho xg).
 Defined.
-Implicit Arguments atSubstLt [GL P l G n T].
+Arguments atBumpLo [GL n GL' l G i T] X xg a Ho.
 
-Definition atSubstGt GL P l G n T (xg:ExtCtx (extCtx GL P) l G) (a:AtCtx G (S n) T) (Ho:ltd l (S n)) p :
-AtCtx (ctxSubst xg p) n (elSubst xg T p).
-	revert n Ho T a.
-	induction xg as [| l ? ? ? T'].
-
-	intros.
-	change (PopCtx P (AtCtx GL n) T) in a.
-	destruct a.
-	exact (atCtxEta a).
-
-	intro.
-	destruct n.
-		intro.
-		exact (match ltd_n_O Ho with end).
-	intros.
-	change (PopCtx T' (AtCtx G (S n)) T) in a.
-	destruct a.
-	change (AtCtx (extCtx (ctxSubst xg p) (elSubst xg T' p)) (S n) (fun g=>elSubst xg T p (projT1 g))).
-	apply popCtx.
-	exact (IHxg _ Ho _ a).
-Defined.
-Implicit Arguments atSubstGt [GL P l G n T].
-
-Fixpoint atMBump GL l G n T (xg:ExtCtx GL l G) (a:AtCtx GL n T) : ExAtCtx G (l + n) := match xg with
-	extOCtx => exAtCtx a |
-	extSCtx _ _ xg T' => exAtCtx (popCtx (xa_a (atMBump _ _ _ _ _ xg a)) T')
-end.
-Implicit Arguments atMBump [GL l G n T].
-
-Definition atMBumpTEq GL a b P G (b':AtCtx GL b P) (xg:ExtCtx (extCtx GL P) a G) :
-forall P' (a':AtCtx G a P'),xa_T (atMBump xg (popCtx b' P)) = P'.
-	induction xg as [| a];intros ? ?;simpl.
-
-	destruct a'.
-	reflexivity.
-
-	change (PopCtx T (AtCtx G a) P') in a'.
-	destruct a' as (P',a').
-	apply (tr (fun _=>_) (IHxg _ a')).
-	reflexivity.
-Defined.
-Implicit Arguments atMBumpTEq [GL a b P G P'].
-
-Definition atSubst GL b P l G a T (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P) : forall a':AtCtx G a T,
-AtCtx (ctxSubst xg (ctxProj b')) (varSubst l b a) (elSubst xg T (ctxProj b')).
-	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
-
-	intro.
-	apply (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstLt _ _ _ Ho))).
-	exact (atSubstLt xg a' (lt_ltd Ho) (ctxProj b')).
-
-	intro.
-	apply (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstEq _ _ _ Ho))).
-	assert (a_ := tr (fun v=>AtCtx G v T) Ho a').
-	clear a Ho a'.
-	simpl in a_.
-	assert (b0 := tr (AtCtx G _) (atMBumpTEq b' xg a_) (xa_a (atMBump xg (popCtx b' P)))).
-	assert (Ha := eq_sym (plus_n_Sm l b)).
-	assert (b1 := tr (fun n=>AtCtx G n T) Ha b0).
-	simpl in b1.
-	exact (atSubstGt xg b1 (lt_ltd (le_n_S l _ (le_plus_l l b))) (ctxProj b')).
-
-	apply (tr (fun v=>_->AtCtx (ctxSubst xg _) v (elSubst xg T _)) (eq_sym (varSubstGt _ _ _ Ho))).
-	destruct a.
-		exact (match lt_n_O _ Ho with end).
-	intro a'.
-	simpl.
-	exact (atSubstGt xg a' (lt_ltd Ho) (ctxProj b')).
-Defined.
-Implicit Arguments atSubst [GL b P l G a T].
-
-Definition ctxProj_SubstLt GL P l G n T (xg:ExtCtx (extCtx GL P) l G) (a:AtCtx G n T) (Ho:ltd n l) p :
-elSubst xg (ctxProj a) p = ctxProj (atSubstLt xg a Ho p).
+Lemma envProj_BumpLo GL n GL' l G i T (X:TeleS GL n GL') (xg:TeleS GL l G) (a:AtCtx G i T) (Ho:ltd i l) :
+elBump X xg (envProj a) = envProj (atBumpLo X xg a Ho).
 	revert l Ho xg.
 	induction a using AtCtx_rect;intro;(destruct l;intro;[exact (match Ho with end) |]);intro.
 
 	revert Ho.
-	apply (extSCtxInv xg).
+	apply (extTeleSInv xg).
 	clear xg.
 	revert T.
 	destruct G.
@@ -567,157 +289,199 @@ elSubst xg (ctxProj a) p = ctxProj (atSubstLt xg a Ho p).
 	reflexivity.
 
 	revert T a IHa Ho.
-	apply (extSCtxInv xg).
+	apply (extTeleSInv xg).
 	clear xg.
 	revert T'.
 	destruct G.
-	simpl ctxTp.
+	simpl CtxTp.
 	intros.
-	change (elSubst (extSCtx xg T') (ctxProj (popCtx a T')) p =
-		ctxProj (popCtx (atSubstLt xg a Ho p) (elSubst xg T' p))).
-	apply (tr (fun X=>_ = X) (ctxProj_pop (atSubstLt xg a Ho p) (elSubst xg T' p))).
-	apply (tr (fun X=>_ = fun g=>X (projT1 g)) (IHa _ Ho xg)).
+	change (elBump X (extTeleS xg T') (envProj (popCtx a T')) =
+		envProj (popCtx (atBumpLo X xg a Ho) (elBump X xg T'))).
+	apply (tr (fun x=>_ = x) (envProj_pop (atBumpLo X xg a Ho) (elBump X xg T'))).
+	apply (tr (fun x=>_ = fun g=>x (projT1 g)) (IHa _ Ho xg)).
 	reflexivity.
-Defined.
-Implicit Arguments ctxProj_SubstLt [GL P l G n T].
+Qed.
+Arguments envProj_BumpLo [GL n GL' l G i T] X xg a Ho.
 
-Definition ctxProj_SubstGt GL P l G n T (xg:ExtCtx (extCtx GL P) l G) (a:AtCtx G (S n) T) (Ho:ltd l (S n)) p :
-elSubst xg (ctxProj a) p = ctxProj (atSubstGt xg a Ho p).
-	revert n Ho T a.
+Definition atBumpHi GL n GL' l G i T (X:TeleS GL n GL') (xg:TeleS GL l G) (a:AtCtx G i T) (Ho:ltd l (S i)) : AtCtx (CtxBump X xg) (n + i) (elBump X xg T).
+	revert i Ho T a.
 	induction xg as [| l ? ? ? T'].
 
 	intros.
-	change (PopCtx P (AtCtx GL n) T) in a.
-	destruct a.
-	change (elSubst (extOCtx (extCtx GL P)) (ctxProj (popCtx a P)) p = ctxProj (atCtxEta a)).
-	apply (tr (fun X=>elSubst (extOCtx _) X p = _) (ctxProj_pop a P)).
-	apply (tr (fun X=>_ = X) (ctxProj_Eta a)).
-	reflexivity.
+	exact (atUnExt X a).
 
 	intro.
-	destruct n.
+	destruct i.
 		intro.
 		exact (match ltd_n_O Ho with end).
 	intros.
-	change (PopCtx T' (AtCtx G (S n)) T) in a.
+	apply (tr (fun v=>AtCtx _ v _) (plus_n_Sm n i)).
+	change (PopCtx T' (AtCtx G i) T) in a.
 	destruct a.
-	change (elSubst (extSCtx xg T') (ctxProj (popCtx a T')) p =
-		ctxProj (popCtx (atSubstGt xg a Ho p) (elSubst xg T' p))).
-	apply (tr (fun X=>elSubst (extSCtx xg T') X p = _) (ctxProj_pop a T')).
-	apply (tr (fun X=>_ = X) (ctxProj_pop (atSubstGt xg a Ho p) (elSubst xg T' p))).
-	apply (tr (fun X=>_ = fun g=>X (projT1 g)) (IHxg _ Ho _ a)).
-	reflexivity.
+	change (AtCtx (ExtCtx (CtxBump X xg) (elBump X xg T')) (S (n + i)) (fun g=>elBump X xg T (projT1 g))).
+	apply popCtx.
+	exact (IHxg _ Ho _ a).
 Defined.
-Implicit Arguments ctxProj_SubstGt [GL P l G n T].
+Arguments atBumpHi [GL n GL' l G i T] X xg a Ho.
 
-Definition elMBump GL P n G P' (xg:ExtCtx (extCtx GL P) n G) (a:AtCtx G n P') (p:forall g,P g) : forall g,P' g.
-	revert P' a.
-	induction xg;intros ? ?.
+Lemma envProj_BumpHi GL n GL' l G i T (X:TeleS GL n GL') (xg:TeleS GL l G) (a:AtCtx G i T) (Ho:ltd l (S i)) :
+elBump X xg (envProj a) = envProj (atBumpHi X xg a Ho).
+	revert i Ho T a.
+	induction xg as [| l ? ? ? T'].
 
-	destruct a.
-	exact (fun g=>p (projT1 g)).
-
-	change (PopCtx T (AtCtx G n) P') in a.
-	destruct a as (P',?).
-	exact (fun g=>IHxg _ a (projT1 g)).
-Defined.
-Implicit Arguments elMBump [GL P n G P'].
-
-Definition ctxProj_MBump GL a b P G P' (b':AtCtx GL b P) (xg:ExtCtx (extCtx GL P) a G) (a':AtCtx G a P') :
-ctxProj (tr (AtCtx G _) (atMBumpTEq b' xg a') (xa_a (atMBump xg (popCtx b' P)))) = elMBump xg a' (ctxProj b').
-	apply extAtCtxInd with (xg := xg) (a := a');clear a G P' xg a'.
-
-	revert P b'.
-	destruct GL as (GL,?).
 	intros.
+	simpl.
+	apply (tr (fun x=>_ = x) (envProj_UnExt X a)).
 	reflexivity.
 
-	intros a ?.
-	destruct G.
-	simpl ctxTp.
-	intros ? ? a' ? ?.
-	simpl elMBump.
-	apply (tr (fun t=>_ = fun g=>t (projT1 g)) H).
-	simpl atMBumpTEq.
-	refine (match atMBumpTEq b' xg a' as teq
-		return ctxProj (tr (AtCtx (extCtx (ctx s) _) _) (tr _ teq _) _) =
-			fun g=>ctxProj (tr _ teq _) (projT1 g)
-		with eq_refl => _ end).
-	clear P' a' H.
+	intro.
+	destruct i.
+		intro.
+		exact (match ltd_n_O Ho with end).
+	intros.
+	change (PopCtx T' (AtCtx G i) T) in a.
+	destruct a.
+	simpl atBumpHi.
+	destruct (plus_n_Sm n i).
 	simpl tr.
+	apply (tr (fun x=>elBump X (extTeleS xg T') x = _) (envProj_pop a T')).
+	apply (tr (fun x=>_ = x) (envProj_pop (atBumpHi X xg a Ho) (elBump X xg T'))).
+	apply (tr (fun x=>_ = fun g=>x (projT1 g)) (IHxg _ Ho _ a)).
 	reflexivity.
-Defined.
-Implicit Arguments ctxProj_MBump [GL a b P G P'].
+Qed.
+Arguments envProj_BumpHi [GL n GL' l G i T] X xg a Ho.
 
-Definition ctxProj_SubstEq GL P n G P' (xg:ExtCtx (extCtx GL P) n G) (a:AtCtx G n P') p :
-elSubst xg (ctxProj a) p = elSubst xg (elMBump xg a p) p.
-	apply extAtCtxInd with (xg := xg) (a := a);clear n G P' xg a.
+(* Subst *)
 
-	reflexivity.
+Definition xcSubst GL B l G (xg:TeleS (ExtCtx GL B) l G) (b:forall g,B g) := teleComp xg GL (fun g=>existT B g (b g)).
 
-	intros ? ?.
-	destruct G.
-	simpl ctxTp.
+Definition CtxSubst GL B l G (xg:TeleS (ExtCtx GL B) l G) b := xc_G' (xcSubst xg b).
+
+Definition elSubst GL B l G (xg:TeleS (ExtCtx GL B) l G) b T (t:forall g,T g) (g:CtxSubst xg b) :=
+	t (xc_f' (xcSubst xg b) g).
+Arguments elSubst [GL B l G] xg b [T] t g.
+
+Definition atSubstLt GL B l G i T (xg:TeleS (ExtCtx GL B) l G) b (a:AtCtx G i T) (Ho:ltd i l) :
+AtCtx (CtxSubst xg b) i (elSubst xg b T).
+	revert l Ho xg.
+	induction a using AtCtx_rect;intro;(destruct l;intro;[exact (match Ho with end) |]);intro.
+
+	apply (extTeleSInv xg).
+	clear xg.
+	intro.
+	apply (topCtx (CtxSubst xg b) (elSubst xg b T)).
+
+	revert T a IHa.
+	apply (extTeleSInv xg).
+	clear xg.
 	intros.
-	change ((fun g:ctxSubst (extSCtx xg T) p=>elSubst xg (ctxProj a) p (projT1 g)) =
-		(fun g=>elSubst xg (elMBump xg a p) p (projT1 g))).
-	apply (tr (fun X=>_ = fun g:ctxSubst (extSCtx xg T) p=>X (projT1 g)) H).
-	reflexivity.
+	exact (popCtx (IHa _ Ho xg) (elSubst xg b T')).
 Defined.
-Implicit Arguments ctxProj_SubstEq [GL P n G P'].
+Arguments atSubstLt [GL B l G i T] xg b a Ho.
 
-Definition ctxProj_Subst GL b P l G a T (xg:ExtCtx (extCtx GL P) l G) (b':AtCtx GL b P) : forall a':AtCtx G a T,
-elSubst xg (ctxProj a') (ctxProj b') = ctxProj (atSubst xg b' a').
-	unfold atSubst.
-	destruct (lt_eq_lt_dec a l) as [s | Ho];[destruct s as [Ho | Ho] |].
+Lemma envProj_SubstLt GL B l G i T (xg:TeleS (ExtCtx GL B) l G) b (a:AtCtx G i T) (Ho:ltd i l) :
+elSubst xg b (envProj a) = envProj (atSubstLt xg b a Ho).
+	revert l Ho xg.
+	induction a using AtCtx_rect;intro;(destruct l;intro;[exact (match Ho with end) |]);intro.
 
-	intro.
-	refine (match eq_sym (varSubstLt l b a Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _)
-		with eq_refl => _ end).
-	simpl.
-	apply ctxProj_SubstLt.
-
-	intro.
-	refine (match eq_sym (varSubstEq l b a Ho) as p
-		return _ = ctxProj (tr (fun v=>AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _)
-		with eq_refl => _ end).
-	simpl.
-	set (a_ := tr (fun v=>AtCtx G v T) Ho a').
-	simpl in a_.
-	pose (b0 := tr (AtCtx G _) (atMBumpTEq b' xg a_) (xa_a (atMBump xg (popCtx b' P)))).
-	simpl in b0.
-	fold b0.
-	set (Ha := eq_sym (plus_n_Sm l b)).
-	set (b1 := tr (fun n=>AtCtx G n T) Ha b0).
-	simpl in b1.
-	apply (tr _ (ctxProj_SubstGt xg _ _ _)).
-	subst b1.
-	refine (match Ha as Ha
-		return _ = elSubst xg (ctxProj (tr (fun n=>AtCtx G n T) Ha b0)) _
-		with eq_refl => _ end).
-	simpl.
-	clear Ha.
-	subst b0.
-	apply (tr (fun X=>_ = elSubst xg X _) (eq_sym (ctxProj_MBump b' xg a_))).
-	apply (tr _ (ctxProj_SubstEq xg a_ _)).
-	subst a_.
-	refine (match Ho as Ho return
-		elSubst xg _ _ =
-		elSubst xg (ctxProj (tr _ Ho a')) _
-	with eq_refl => _ end).
-	simpl.
+	revert Ho.
+	apply (extTeleSInv xg).
+	clear xg.
+	revert T.
+	destruct G.
+	simpl CtxTp.
+	intros.
 	reflexivity.
 
-	refine (match eq_sym (varSubstGt l b a Ho) as p
-		return forall a',_ = ctxProj (tr (fun v=>_->AtCtx (ctxSubst xg _) v (elSubst xg T _)) p _ a')
-		with eq_refl => _ end).
-	simpl.
+	revert T a IHa Ho.
+	apply (extTeleSInv xg).
+	clear xg.
+	revert T'.
+	destruct G.
+	simpl CtxTp.
+	intros.
+	change (elSubst (extTeleS xg T') b (envProj (popCtx a T')) =
+		envProj (popCtx (atSubstLt xg b a Ho) (elSubst xg b T'))).
+	apply (tr (fun x=>_ = x) (envProj_pop (atSubstLt xg b a Ho) (elSubst xg b T'))).
+	apply (tr (fun x=>_ = fun g=>x (projT1 g)) (IHa _ Ho xg)).
+	reflexivity.
+Qed.
+Arguments envProj_SubstLt [GL B l G i T] xg b a Ho.
+
+Definition atSubstGt GL B l G i T (xg:TeleS (ExtCtx GL B) l G) b (a:AtCtx G (S i) T) (Ho:ltd l (S i)) :
+AtCtx (CtxSubst xg b) i (elSubst xg b T).
+	revert i Ho T a.
+	induction xg as [| l ? ? ? T'].
+
+	intros.
+	change (PopCtx B (AtCtx GL i) T) in a.
 	destruct a.
-		exact (match lt_n_O _ Ho with end).
+	exact a.
+
 	intro.
-	apply ctxProj_SubstGt.
+	destruct i.
+		intro.
+		exact (match ltd_n_O Ho with end).
+	intros.
+	change (PopCtx T' (AtCtx G (S i)) T) in a.
+	destruct a.
+	exact (popCtx (IHxg _ Ho _ a) (elSubst xg b T')).
 Defined.
-Implicit Arguments ctxProj_Subst [GL b P l G a T].
+Arguments atSubstGt [GL B l G i T] xg b a Ho.
+
+Lemma envProj_SubstGt GL B l G i T (xg:TeleS (ExtCtx GL B) l G) b (a:AtCtx G (S i) T) (Ho:ltd l (S i)) :
+elSubst xg b (envProj a) = envProj (atSubstGt xg b a Ho).
+	revert i Ho T a.
+	induction xg as [| l ? ? ? T'].
+
+	intros.
+	change (PopCtx B (AtCtx GL i) T) in a.
+	destruct a.
+	change (elSubst (empTeleS (ExtCtx GL B)) b (envProj (popCtx a B)) = envProj a).
+	apply (tr (fun x=>elSubst (empTeleS _) b x = _) (envProj_pop a B)).
+	reflexivity.
+
+	intro.
+	destruct i.
+		intro.
+		exact (match ltd_n_O Ho with end).
+	intros.
+	change (PopCtx T' (AtCtx G (S i)) T) in a.
+	destruct a.
+	change (elSubst (extTeleS xg T') b (envProj (popCtx a T')) =
+		envProj (popCtx (atSubstGt xg b a Ho) (elSubst xg b T'))).
+	apply (tr (fun x=>elSubst (extTeleS xg T') b x = _) (envProj_pop a T')).
+	apply (tr (fun x=>_ = x) (envProj_pop (atSubstGt xg b a Ho) (elSubst xg b T'))).
+	apply (tr (fun x=>_ = fun g=>x (projT1 g)) (IHxg _ Ho _ a)).
+	reflexivity.
+Qed.
+Arguments envProj_SubstGt [GL B l G i T] xg b a Ho.
+
+Lemma xcSubstEqUnExt GL B l G (xg:TeleS (ExtCtx GL B) l G) b : forall B' (a:AtCtx G l B'),
+	let X : TeleS GL l (CtxSubst xg b) := xc_xg' (xcSubst xg b) in
+existT (fun T:_->Typ=>forall g,T g) (fun g=>B (unExt X g)) (fun g=>b (unExt X g)) =
+existT _ (elSubst xg b B') (elSubst xg b (envProj a)).
+	induction xg as [| l];intros;unfold AtCtx in a;simpl in a.
+
+	destruct a.
+	unfold elSubst.
+	unfold CtxSubst.
+	simpl.
+	reflexivity.
+
+	set (Tt (T:_->Typ) := forall g,T g).
+	change (CtxSubst (extTeleS xg T) b) with (ExtCtx (CtxSubst xg b) (elSubst xg b T)) in Tt.
+	destruct a as (B').
+	change (AtCtx G l B') in a.
+	simpl unExt.
+	clear X.
+	set (X := xc_xg' (xcSubst xg b)).
+	apply (tr (fun x:forall g,B' (projT1 g)=>_ = existT Tt _ (elSubst (extTeleS xg T) b x)) (envProj_pop a T)).
+	apply (tr (fun s:{T:_->Typ & forall g,T g}=>_ = existT Tt (fun g=>projT1 s (projT1 g)) (fun g=>projT2 s (projT1 g))) (IHxg _ a)).
+	simpl.
+	fold X.
+	reflexivity.
+Qed.
+Arguments xcSubstEqUnExt [GL B l G] xg b [B'] a.
 
 End Contex.

@@ -8,57 +8,48 @@ Informal details of the language:
 
 Abstract Syntax:
 (x.M) denotes an expression appropriate for metavariable M, with a new bound variable in scope.
-
-[M] denotes a list of expressions appropriate for metavariable M.
-It does _not_ denote a singleton list. Sorry.
-Think of it as a naming convention. In particular, M and [M] are distinct metavariables.
-[] is the empty list and [M], M conses a new element, which is written on the right. (A "snoc list".)
+[] is the empty context. Nonempty contexts are written with sublist contexts or individual bindings separated by commas (,).
 
 ===============
 
-variables (f, a, x)
+variables (x)
 
-types (A, B, T, F) ::= Uv | El t | Pi A (x.B)
+types (T, A, B) ::= Uv | El t | Pi A (x.B)
 
-terms (t) ::= (f,[a])
+terms (t, f, a) ::= x | apl f a
 
 contexts (G) as lists of (x:T) bindings
 
 ===============
 
 Typing Rules:
-For some silly reason which I forget, I decided to type the argument lists in the context of the head type, rather than type whole terms as usual.
-In other words, given that some hypothetical head has type F, an argument list would have type T with the head applied to it.
-It technically works.
-This will be one of the first idiosyncrasies to go when I try to generalize the interpreter to larger subsets of type theory.
-In the mean time, enjoy this unusual presentation of function application.
 
 ===============
 
 Types (G |- T type):
 
------------- TUv
+------------ TpUv
 G |- Uv type
 
-f in G
-G; G(f) |- [a] : Uv
--------------------- TEl
-G |- El (f,[a]) type
+G |- t : Uv
+-------------- TpEl
+G |- El t type
 
 G |- A type
 G, x:A |- B type
--------------------- TPi
+-------------------- TpPi
 G |- Pi A (x.B) type
 
-Argument Lists (G; F |- [a] : T):
+Terms (G |- t : T):
 
--------------- LANil
-G; F |- [] : F
+x:T in G
+---------- TmVar
+G |- x : T
 
-a in G
-G; F |- [a] : Pi (G(a)) (x.B)
------------------------------ LACons
-G; F |- [a], a : B[a/x]
+G |- f : Pi A (x.B)
+G |- a : A
+--------------------- TmApl
+G |- apl f a : B[a/x]
 
 Contexts (|- G ctx):
 
@@ -73,19 +64,30 @@ G |- T type
 ===============
 
 All these rules are in a type-checking-friendly style that I might've heard called "locally valid contexts".
-One can derive judgements involving ill-formed contexts. (Like "x:El (x,[]) |- Uv type".)
+One can derive judgements involving ill-formed contexts. (Like "x:El x |- Uv type".)
 This is not a problem because a judgment should only be considered meaningful when the LHS of the turnstile is.
 These derivations "inside the context" can be converted to derivations "outside the context" when the LHS can be separately derived.
 (The interpreter does not do that though.)
 
-Interpretation Example:
-The interpreter should interpret the derivation of
+Interpretation Behavior:
+Conceptually, contexts are interpreted as left-nested sigmas (which are types).
+	[[G]] : Type
+Open type expressions are interpreted as type families (indexed by an interpreted context).
+	[[T]] : [[G]]->Type
+Open terms are interpreted as dependent functions.
+	[[t]] : forall g:[[G]],[[T]] g
+However, these interpretation functions are not expressed directly. Instead, the syntax and semantics are developed separately,
+and then interpretation relations are defined. (TreeTypeItrp and TreeTermItrp in TreeItrp.v; CtxItrp instantiated from DepItrp.v)
+The actual interpreter converts a syntactic typing derivation for a term or type expression
+to a "semantic derivation" of the appropriate interpretation relation instance.
+The type families and dependent functions for interpreted expressions can be projected out.
+For example, the interpreter should interpret the derivation of
 
-[], N:Uv, z:El (N,[]); Pi (El (N,[])) (_.El (N,[])) |- [], z : El (N,[])
+N:Uv, z:El N, s:Pi (El N) (_.El N) |- apl s z : El N
 
 as
 
-fun (g:{g':{_:unit & Type} & projT2 g'}) (f:projT2 (projT1 g)->projT2 (projT1 g)) => f (projT2 g)
+fun g:{g:{g:{_:unit & Type} & projT2 g} & (projT2 (projT1 g)->projT2 (projT1 g))} => (projT2 g) (projT2 (projT1 g))
 
 which corresponds to
 
@@ -97,19 +99,40 @@ I elided the use of a universe construction ("Typ". See TreeItrp.v.) in the midd
 But the universe allows the injection of arbitrary types, so there should still be an isomorphism.
 
 Files:
+Some of these require Coq 8.4 to compile; others compile in either 8.3 or 8.4.
 
-Utils.v				Various stuff that didn't belong elsewhere.
-SimpSubst.v			De Bruijn index substitutions for SimpSyntax.v and TreeSyntax.v.
+Utils.v				(8.3) Various stuff that didn't belong elsewhere.
+SimpSubst.v			(8.3) Limited de Bruijn index substitutions for SimpSyntax.v.
 
-SimpSyntax.v		Simple language. Types are limited to right-nested Pi, ending in Uv.
+SimpSyntax.v		(8.3) Simple language. Types are limited to right-nested Pi, ending in Uv.
 					The domains all implicitly use El immediately.
 					Uses two contexts in typing rules. This is used by Chained.v and SemiSimplicial.v.
 
-TreeSyntax.v		The language described above. Uses one context in typing rules.
-					Also has a type-preserving translation from the SimpSyntax.v language.
+Substitutions.v		(8.3) Generic implementation of substitutions for de Bruijn indexes.
+					"term" from TERMBUMP should be instantiated to whatever type of syntax gets substituted for variables.
+					Use this to easily prove all the algebraic properties of substitutions for a language using de Bruijn indexes.
+					(Because the messy variable cases are handled generically.)
 
-Context.v			Implementation of contexts, de Bruijn indexes, and substitutions for the outrageous relations.
-TreeItrp.v			Interpreter for the TreeSyntax.v language.
+DepTyping.v			(8.3) Generic implementation of typing contexts and the TmVar rule above.
+					"type" from TYPES should be instantiated to whatever type of syntax is listed in a context.
+					"tyDf" is a default value for list operations. It doesn't need to be well formed.
+					Use this to easily prove the structural rules for a type system using de Bruijn indexes.
+					Note that as is, this file assumes derivations "inside the context". (See above.)
+
+TreeSyntax.v		(8.3) The language described above. Uses one context in typing rules.
+					Uses Substitutions.v and DepTyping.v to handle structural stuff.
+
+SimpToTree.v		(8.3) Type-preserving translation from the SimpSyntax.v language to the TreeSyntax.v one.
+
+Context.v			(8.4) Implementation of semantic contexts (Ctx), strongly typed de Bruijn indexes (AtCtx),
+					and substitutions for the semantics (e.g. elSubst).
+
+DepItrp.v			(8.4) Generic implementation of substitutions (e.g. ttItrpSubst) and contexts (CtxItrp)
+					for outrageous interpretation relations.
+					Follows the pattern of Substitutions.v and DepTyping.v, but this time,
+					since we're dealing with semantics, most of the work is done by Context.v.
+
+TreeItrp.v			(8.4) Interpreter for the TreeSyntax.v language, as described above.
 
 Chained.v			Generates well-typed syntax for the type of n-truncated towers. Not currently working.
 SemiSimplicial.v	Generates well-typed syntax for the type of n-truncated semisimplicial types. Incomplete and broken.
