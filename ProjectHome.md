@@ -1,0 +1,1 @@
+This is an attempt at formalizing the standard interpretation for a simple dependent type system in Coq. It's loosely based on the work described in the 2010 paper "Outrageous but Meaningful Coincidences" by Conor McBride.
